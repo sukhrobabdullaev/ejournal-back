@@ -1,0 +1,1 @@
+"""Editorial migrations (no models)."""

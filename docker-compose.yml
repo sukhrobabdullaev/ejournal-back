@@ -1,0 +1,72 @@
+services:
+  db:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: ejournal
+      POSTGRES_USER: ejournal
+      POSTGRES_PASSWORD: ejournal
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ejournal"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  web:
+    build: .
+    command: >
+      sh -c "python manage.py migrate --noinput &&
+             python manage.py collectstatic --noinput &&
+             python manage.py seed_db &&
+             gunicorn --bind 0.0.0.0:8000 --workers 3 ejournal.wsgi:application"
+    volumes:
+      - .:/app
+      - media_volume:/app/media
+      - static_volume:/app/staticfiles
+    env_file: .env
+    environment:
+      DJANGO_SETTINGS_MODULE: ejournal.settings.dev
+      DATABASE_URL: postgres://ejournal:ejournal@db:5432/ejournal
+      CELERY_BROKER_URL: redis://redis:6379/0
+      USE_S3_STORAGE: "false"
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  celery:
+    build: .
+    command: celery -A ejournal worker -l info
+    volumes:
+      - .:/app
+      - media_volume:/app/media
+    env_file: .env
+    environment:
+      DJANGO_SETTINGS_MODULE: ejournal.settings.dev
+      DATABASE_URL: postgres://ejournal:ejournal@db:5432/ejournal
+      CELERY_BROKER_URL: redis://redis:6379/0
+      USE_S3_STORAGE: "false"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  media_volume:
+  static_volume:
