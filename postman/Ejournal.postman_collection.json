@@ -1,0 +1,449 @@
+{
+  "info": {
+    "name": "Ejournal API",
+    "description": "Manuscript submission & peer review platform. Set base_url (default http://localhost:8000). Run Login, then copy 'access' into access_token for auth.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://localhost:8000" },
+    { "key": "access_token", "value": "" },
+    { "key": "refresh_token", "value": "" }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{access_token}}", "type": "string" }]
+  },
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "API Root",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/",
+            "description": "API info and version"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Signup",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"newuser@test.com\",\n  \"password\": \"password123\",\n  \"full_name\": \"New User\",\n  \"affiliation\": \"University\",\n  \"roles\": [\"author\"],\n  \"why_to_be\": \"\"\n}"
+            },
+            "url": "{{base_url}}/api/auth/signup",
+            "description": "Create account. For reviewer/editor add 'why_to_be'. Roles: author, reviewer, editor."
+          }
+        },
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.access) pm.collectionVariables.set('access_token', json.access);",
+                  "  if (json.refresh) pm.collectionVariables.set('refresh_token', json.refresh);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"author@test.com\",\n  \"password\": \"author123\"\n}"
+            },
+            "url": "{{base_url}}/api/auth/login",
+            "description": "Get JWT access + refresh. Sets access_token automatically."
+          }
+        },
+        {
+          "name": "Refresh Token",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh\": \"{{refresh_token}}\"\n}"
+            },
+            "url": "{{base_url}}/api/auth/refresh"
+          }
+        },
+        {
+          "name": "Me (GET)",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/me"
+          }
+        },
+        {
+          "name": "Me (PATCH)",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"full_name\": \"Updated Name\",\n  \"affiliation\": \"Updated Affiliation\"\n}"
+            },
+            "url": "{{base_url}}/api/me"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Integrations",
+      "item": [
+        {
+          "name": "Upload File",
+          "request": {
+            "method": "POST",
+            "body": {
+              "mode": "formdata",
+              "formdata": [{ "key": "file", "type": "file", "src": "" }]
+            },
+            "url": "{{base_url}}/api/upload-file",
+            "description": "Upload file (form-data, key: file), get { url } in response."
+          }
+        },
+        {
+          "name": "ORCID Connect",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orcid_id\": \"0000-0002-1234-5678\"\n}"
+            },
+            "url": "{{base_url}}/api/orcid/connect"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Topic Areas",
+      "item": [
+        {
+          "name": "List Topic Areas",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/topic-areas"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Submissions (Author)",
+      "item": [
+        {
+          "name": "Create Draft",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/submissions",
+            "description": "Creates empty draft. Use returned id for PATCH, upload, submit."
+          }
+        },
+        {
+          "name": "List Submissions",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/submissions"
+          }
+        },
+        {
+          "name": "Get Submission",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/submissions/1"
+          }
+        },
+        {
+          "name": "PATCH Submission (metadata)",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"My Manuscript Title\",\n  \"abstract\": \"Abstract text here.\",\n  \"keywords\": [\"keyword1\", \"keyword2\", \"keyword3\"],\n  \"topic_area_id\": 1,\n  \"originality_confirmation\": true,\n  \"plagiarism_agreement\": true,\n  \"ethics_compliance\": true,\n  \"copyright_agreement\": true\n}"
+            },
+            "url": "{{base_url}}/api/submissions/1",
+            "description": "Needs 3+ keywords, topic_area_id, all agreements true for submit."
+          }
+        },
+        {
+          "name": "Upload File (submission)",
+          "request": {
+            "method": "POST",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "file", "type": "file", "src": "" },
+                { "key": "file_type", "value": "manuscript", "type": "text" }
+              ]
+            },
+            "url": "{{base_url}}/api/submissions/1/upload-file",
+            "description": "Form-data: file (select file), file_type (manuscript | supplementary). Returns { url }."
+          }
+        },
+        {
+          "name": "Submit",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/submissions/1/submit",
+            "description": "draft → submitted. Requires title, abstract, 3+ keywords, topic, manuscript, all agreements."
+          }
+        },
+        {
+          "name": "Delete Draft",
+          "request": {
+            "method": "DELETE",
+            "url": "{{base_url}}/api/submissions/1"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Reviewer",
+      "item": [
+        {
+          "name": "List Assignments",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/reviewer/assignments"
+          }
+        },
+        {
+          "name": "Get Assignment",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/reviewer/assignments/1"
+          }
+        },
+        {
+          "name": "Accept Assignment",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/reviewer/assignments/1/accept"
+          }
+        },
+        {
+          "name": "Decline Assignment",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/reviewer/assignments/1/decline"
+          }
+        },
+        {
+          "name": "Submit Review",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"summary\": \"Overall summary of the manuscript.\",\n  \"strengths\": \"Key strengths.\",\n  \"weaknesses\": \"Areas for improvement.\",\n  \"confidential_to_editor\": \"Confidential comments.\",\n  \"recommendation\": \"accept\"\n}"
+            },
+            "url": "{{base_url}}/api/reviewer/assignments/1/submit-review",
+            "description": "recommendation: accept | minor_revision | major_revision | reject"
+          }
+        },
+        {
+          "name": "Accept by Token (GET)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/reviewer/accept-by-token/?token=YOUR_TOKEN",
+              "host": ["{{base_url}}"],
+              "path": ["api", "reviewer", "accept-by-token", ""],
+              "query": [{ "key": "token", "value": "YOUR_TOKEN" }]
+            }
+          }
+        },
+        {
+          "name": "Accept by Token (POST)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"YOUR_TOKEN_FROM_EMAIL\"\n}"
+            },
+            "url": "{{base_url}}/api/reviewer/accept-by-token"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Editorial",
+      "item": [
+        {
+          "name": "List Submissions",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/editor/submissions?status=submitted",
+              "host": ["{{base_url}}"],
+              "path": ["api", "editor", "submissions"],
+              "query": [{ "key": "status", "value": "submitted" }]
+            },
+            "description": "status: submitted, screening, under_review, decision_pending, accepted, etc."
+          }
+        },
+        {
+          "name": "Get Submission",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/editor/submissions/1"
+          }
+        },
+        {
+          "name": "Start Screening",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/editor/submissions/1/start-screening",
+            "description": "submitted → screening"
+          }
+        },
+        {
+          "name": "Desk Reject",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Out of scope for our journal.\"\n}"
+            },
+            "url": "{{base_url}}/api/editor/submissions/1/desk-reject"
+          }
+        },
+        {
+          "name": "Send to Review",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/editor/submissions/1/send-to-review",
+            "description": "screening → under_review"
+          }
+        },
+        {
+          "name": "Invite Reviewer (by user id)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reviewer_user_id\": 3,\n  \"due_date\": \"2025-03-15\"\n}"
+            },
+            "url": "{{base_url}}/api/editor/submissions/1/invite-reviewer"
+          }
+        },
+        {
+          "name": "Invite Reviewer (by email)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reviewer_email\": \"reviewer@test.com\",\n  \"due_date\": \"2025-03-15\"\n}"
+            },
+            "url": "{{base_url}}/api/editor/submissions/1/invite-reviewer"
+          }
+        },
+        {
+          "name": "Move to Decision",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/editor/submissions/1/move-to-decision",
+            "description": "under_review → decision_pending"
+          }
+        },
+        {
+          "name": "Decision",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"decision\": \"accept\",\n  \"decision_letter\": \"We are pleased to accept your manuscript for publication.\"\n}"
+            },
+            "url": "{{base_url}}/api/editor/submissions/1/decision",
+            "description": "decision: accept | reject | revision_required"
+          }
+        },
+        {
+          "name": "Publish",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/editor/submissions/1/publish",
+            "description": "accepted → published"
+          }
+        },
+        {
+          "name": "Remind Reviewer",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/editor/review-assignments/1/remind"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Admin",
+      "item": [
+        {
+          "name": "Approve Reviewer",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/admin/users/3/approve-reviewer",
+            "description": "Staff only. User must have reviewer role."
+          }
+        },
+        {
+          "name": "Approve Editor",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/admin/users/4/approve-editor"
+          }
+        },
+        {
+          "name": "Reject Reviewer",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Not suitable for our reviewer pool.\"\n}"
+            },
+            "url": "{{base_url}}/api/admin/users/3/reject-reviewer"
+          }
+        },
+        {
+          "name": "Reject Editor",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Editor positions are full.\"\n}"
+            },
+            "url": "{{base_url}}/api/admin/users/4/reject-editor"
+          }
+        }
+      ]
+    }
+  ]
+}

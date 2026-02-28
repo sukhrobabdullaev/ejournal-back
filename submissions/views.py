@@ -1,4 +1,8 @@
 """Submission views (author workflow)."""
+import base64
+import uuid
+
+from django.core.files.base import ContentFile
 from django.db import transaction
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -66,49 +70,56 @@ class SubmissionViewSet(viewsets.ModelViewSet):
             )
         return super().destroy(request, *args, **kwargs)
 
-    @action(detail=True, methods=["post"], url_path="upload-manuscript")
-    def upload_manuscript(self, request, pk=None):
-        """POST /api/submissions/{id}/upload-manuscript - Attach manuscript PDF."""
+    @action(detail=True, methods=["post"], url_path="upload-file")
+    def upload_file(self, request, pk=None):
+        """POST /api/submissions/{id}/upload-file - Upload file. Use form-data (file, file_type) or JSON (base64). Returns file URL."""
         submission = self.get_object()
         if submission.status != "draft":
             return Response(
-                {"detail": "Manuscript can only be uploaded for drafts."},
+                {"detail": "Files can only be uploaded for drafts."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        file_obj = request.FILES.get("file")
-        if not file_obj:
+        file_type = (request.data.get("file_type") or "manuscript").strip() or "manuscript"
+        if file_type not in ("manuscript", "supplementary"):
             return Response(
-                {"detail": "No file provided. Use multipart/form-data with 'file' key."},
+                {"detail": "file_type must be 'manuscript' or 'supplementary'."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        submission.manuscript_pdf = file_obj
-        submission.save(update_fields=["manuscript_pdf"])
-        serializer = self.get_serializer(submission)
-        return Response(serializer.data)
 
-    @action(detail=True, methods=["post"], url_path="upload-supplementary")
-    def upload_supplementary(self, request, pk=None):
-        """POST /api/submissions/{id}/upload-supplementary - Attach supplementary file."""
-        submission = self.get_object()
-        if submission.status != "draft":
-            return Response(
-                {"detail": "Supplementary files can only be added to drafts."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
         file_obj = request.FILES.get("file")
-        if not file_obj:
-            return Response(
-                {"detail": "No file provided. Use multipart/form-data with 'file' key."},
-                status=status.HTTP_400_BAD_REQUEST,
+        if file_obj:
+            content = file_obj.read()
+            filename = file_obj.name or "file"
+        else:
+            file_base64 = request.data.get("file_base64")
+            filename = request.data.get("filename", "file")
+            if not file_base64:
+                return Response(
+                    {"detail": "Provide 'file' (form-data) or 'file_base64' + 'filename' (JSON). file_type: manuscript | supplementary"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            try:
+                content = base64.b64decode(file_base64, validate=True)
+            except Exception:
+                return Response({"detail": "Invalid base64 encoding."}, status=status.HTTP_400_BAD_REQUEST)
+            if not content:
+                return Response({"detail": "Empty file content."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if file_type == "manuscript":
+            ext = filename.rsplit(".", 1)[-1] if "." in filename else "pdf"
+            safe_name = f"{uuid.uuid4().hex}.{ext}"
+            submission.manuscript_pdf.save(safe_name, ContentFile(content), save=True)
+            url = request.build_absolute_uri(submission.manuscript_pdf.url) if submission.manuscript_pdf else None
+            return Response({"url": url, "file_type": "manuscript"})
+        else:
+            safe_name = f"{uuid.uuid4().hex}_{filename}"
+            supp = SubmissionSupplementaryFile.objects.create(
+                submission=submission,
+                file=ContentFile(content, name=safe_name),
+                name=filename,
             )
-        name = request.data.get("name", file_obj.name)
-        SubmissionSupplementaryFile.objects.create(
-            submission=submission,
-            file=file_obj,
-            name=name,
-        )
-        serializer = self.get_serializer(submission)
-        return Response(serializer.data)
+            url = request.build_absolute_uri(supp.file.url) if supp.file else None
+            return Response({"url": url, "file_type": "supplementary", "id": supp.id})
 
     @action(detail=True, methods=["post"], url_path="submit")
     def submit(self, request, pk=None):

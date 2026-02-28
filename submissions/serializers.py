@@ -39,6 +39,7 @@ class SubmissionSerializer(serializers.ModelSerializer):
         required=False,
         allow_null=True,
     )
+    manuscript_pdf = serializers.SerializerMethodField()
 
     class Meta:
         model = Submission
@@ -59,7 +60,19 @@ class SubmissionSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "status", "manuscript_pdf", "supplementary_files", "created_at", "updated_at"]
+        read_only_fields = ["id", "status", "supplementary_files", "created_at", "updated_at"]
+
+    def get_manuscript_pdf(self, obj):
+        """Return manuscript URL or None (avoids ValueError on empty FileField)."""
+        f = obj.manuscript_pdf
+        if not f:
+            return None
+        try:
+            url = f.url
+        except (ValueError, AttributeError):
+            return None
+        request = self.context.get("request")
+        return request.build_absolute_uri(url) if request else url
 
     def validate_keywords(self, value):
         """Ensure keywords is a list of 0-10 strings (3+ required on submit)."""
