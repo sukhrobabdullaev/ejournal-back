@@ -86,6 +86,7 @@ All auth-protected endpoints use JWT: `Authorization: Bearer <access_token>`.
 | GET/PATCH | /api/me                                       | ✓          | Current user profile                                |
 | POST      | /api/upload-file                              | ✓          | Upload file (form-data). Returns `{ url }`          |
 | GET       | /api/topic-areas                              | ✓          | List topic areas                                    |
+| GET       | /api/editorial-board                          | -          | List board members (`?role=editor_in_chief|managing_editor|associate_editor`) |
 | POST      | /api/submissions                              | ✓          | Create draft                                        |
 | GET       | /api/submissions                              | ✓          | List own submissions                                |
 | GET       | /api/submissions/{id}                         | ✓          | Get submission                                      |

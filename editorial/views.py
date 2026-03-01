@@ -33,7 +33,7 @@ def get_submission_queryset():
     """Submissions visible to editors (all non-draft)."""
     return Submission.objects.exclude(status="draft").select_related(
         "author", "topic_area"
-    ).prefetch_related("supplementary_files", "review_assignments")
+    ).prefetch_related("supplementary_files", "review_assignments", "review_assignments__review")
 
 
 class EditorialSubmissionViewSet(viewsets.ReadOnlyModelViewSet):

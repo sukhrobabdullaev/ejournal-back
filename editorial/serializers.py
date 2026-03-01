@@ -1,4 +1,5 @@
 """Editorial serializers."""
+from django.db.models import ObjectDoesNotExist
 from rest_framework import serializers
 
 from reviews.models import ReviewAssignment
@@ -34,8 +35,9 @@ class EditorialSubmissionSerializer(serializers.ModelSerializer):
         ]
 
     def get_review_assignments(self, obj):
-        return [
-            {
+        result = []
+        for a in obj.review_assignments.all():
+            item = {
                 "id": a.id,
                 "reviewer": a.reviewer_id,
                 "reviewer_email": a.reviewer.email if a.reviewer else a.invited_email,
@@ -43,8 +45,20 @@ class EditorialSubmissionSerializer(serializers.ModelSerializer):
                 "due_date": a.due_date,
                 "invited_at": a.invited_at,
             }
-            for a in obj.review_assignments.select_related("reviewer").all()
-        ]
+            try:
+                r = a.review
+                item["review"] = {
+                    "summary": r.summary,
+                    "strengths": r.strengths,
+                    "weaknesses": r.weaknesses,
+                    "confidential_to_editor": r.confidential_to_editor,
+                    "recommendation": r.recommendation,
+                    "submitted_at": r.submitted_at,
+                }
+            except ObjectDoesNotExist:
+                item["review"] = None
+            result.append(item)
+        return result
 
 
 class DeskRejectSerializer(serializers.Serializer):

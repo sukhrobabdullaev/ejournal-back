@@ -44,6 +44,7 @@ INSTALLED_APPS = [
     "submissions",
     "reviews",
     "editorial",
+    "editorial_board",
     "notifications",
     "audit",
 ]
