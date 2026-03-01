@@ -63,7 +63,24 @@ Authorization: Bearer <access_token>
 Content-Type: application/json
 ```
 
-Body: `{}` (empty)
+**Minimal (empty body):**
+```json
+{}
+```
+
+**Or with metadata (optional):**
+```json
+{
+  "title": "My Manuscript Title",
+  "abstract": "Abstract text here.",
+  "keywords": ["keyword1", "keyword2", "keyword3"],
+  "topic_area_id": 1,
+  "originality_confirmation": true,
+  "plagiarism_agreement": true,
+  "ethics_compliance": true,
+  "copyright_agreement": true
+}
+```
 
 **Save:** `id` from response → this is `<submission_id>`.
 

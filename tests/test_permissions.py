@@ -6,7 +6,7 @@ from accounts.models import APPROVAL_APPROVED, User
 from accounts.permissions import IsApprovedEditor, IsApprovedReviewer, IsAuthor
 
 
-def make_user(roles, reviewer_status=None, editor_status=None):
+def make_user(roles, reviewer_status=None, editor_status=None, is_email_verified=True):
     """Create a test user with given roles and approval status."""
     user = User.objects.create_user(
         email=f"user_{roles}@test.com",
@@ -18,6 +18,7 @@ def make_user(roles, reviewer_status=None, editor_status=None):
         user.reviewer_status = reviewer_status
     if editor_status is not None:
         user.editor_status = editor_status
+    user.is_email_verified = is_email_verified
     user.save()
     return user
 
@@ -34,10 +35,16 @@ class IsAuthorPermissionTest(TestCase):
         self.assertFalse(self.permission.has_permission(request, None))
 
     def test_author_allowed(self):
-        user = make_user(["author"])
+        user = make_user(["author"], is_email_verified=True)
         request = self.factory.get("/")
         force_authenticate(request, user=user)
         self.assertTrue(self.permission.has_permission(request, None))
+
+    def test_author_unverified_denied(self):
+        user = make_user(["author"], is_email_verified=False)
+        request = self.factory.get("/")
+        force_authenticate(request, user=user)
+        self.assertFalse(self.permission.has_permission(request, None))
 
     def test_reviewer_only_denied(self):
         user = make_user(["reviewer"], reviewer_status=APPROVAL_APPROVED)
@@ -64,10 +71,16 @@ class IsApprovedReviewerPermissionTest(TestCase):
         self.assertFalse(self.permission.has_permission(request, None))
 
     def test_reviewer_approved_allowed(self):
-        user = make_user(["reviewer"], reviewer_status=APPROVAL_APPROVED)
+        user = make_user(["reviewer"], reviewer_status=APPROVAL_APPROVED, is_email_verified=True)
         request = self.factory.get("/")
         force_authenticate(request, user=user)
         self.assertTrue(self.permission.has_permission(request, None))
+
+    def test_reviewer_approved_unverified_denied(self):
+        user = make_user(["reviewer"], reviewer_status=APPROVAL_APPROVED, is_email_verified=False)
+        request = self.factory.get("/")
+        force_authenticate(request, user=user)
+        self.assertFalse(self.permission.has_permission(request, None))
 
     def test_author_only_denied(self):
         user = make_user(["author"])
@@ -94,7 +107,13 @@ class IsApprovedEditorPermissionTest(TestCase):
         self.assertFalse(self.permission.has_permission(request, None))
 
     def test_editor_approved_allowed(self):
-        user = make_user(["editor"], editor_status=APPROVAL_APPROVED)
+        user = make_user(["editor"], editor_status=APPROVAL_APPROVED, is_email_verified=True)
         request = self.factory.get("/")
         force_authenticate(request, user=user)
         self.assertTrue(self.permission.has_permission(request, None))
+
+    def test_editor_approved_unverified_denied(self):
+        user = make_user(["editor"], editor_status=APPROVAL_APPROVED, is_email_verified=False)
+        request = self.factory.get("/")
+        force_authenticate(request, user=user)
+        self.assertFalse(self.permission.has_permission(request, None))

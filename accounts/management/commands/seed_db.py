@@ -85,6 +85,7 @@ class Command(BaseCommand):
                 user.reviewer_status = reviewer_status
             if editor_status:
                 user.editor_status = editor_status
+            user.is_email_verified = True
             user.save()
             self.stdout.write(f"  User: {email}")
         self.stdout.write("  Sample users created (passwords: author123, reviewer123, editor123)")

@@ -6,11 +6,11 @@ from django.db.models import Max
 from django.db import transaction
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
-from rest_framework.parsers import FormParser, MultiPartParser
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from accounts.permissions import IsAuthor
+from accounts.permissions import IsAuthor, IsEmailVerified
 
 from .models import STATUS_RESUBMITTED, STATUS_REVISION_REQUIRED, STATUS_SUBMITTED, Submission, SubmissionSupplementaryFile, SubmissionVersion, TopicArea
 from .serializers import SubmissionSerializer, TopicAreaSerializer
@@ -23,7 +23,7 @@ class SubmissionViewSet(viewsets.ModelViewSet):
 
     permission_classes = [IsAuthor]
     serializer_class = SubmissionSerializer
-    parser_classes = [MultiPartParser, FormParser]
+    parser_classes = [JSONParser, MultiPartParser, FormParser]
 
     def get_queryset(self):
         return Submission.objects.filter(author=self.request.user).select_related("topic_area").prefetch_related("supplementary_files")
@@ -34,15 +34,14 @@ class SubmissionViewSet(viewsets.ModelViewSet):
         return context
 
     def create(self, request, *args, **kwargs):
-        """POST /api/submissions - Create draft."""
-        submission = Submission.objects.create(
-            author=request.user,
-            status="draft",
-        )
+        """POST /api/submissions - Create draft. Accepts optional metadata to fill in one shot."""
+        serializer = self.get_serializer(data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        submission = serializer.save(author=request.user, status="draft")
         from audit.services import log
         log(actor_user=request.user, action_type="submission_created", target_type="submission", target_id=submission.id)
-        serializer = self.get_serializer(submission)
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
+        serializer_out = self.get_serializer(submission)
+        return Response(serializer_out.data, status=status.HTTP_201_CREATED)
 
     def list(self, request, *args, **kwargs):
         """GET /api/submissions/mine - List own submissions."""
@@ -200,6 +199,6 @@ class SubmissionViewSet(viewsets.ModelViewSet):
 class TopicAreaViewSet(viewsets.ReadOnlyModelViewSet):
     """GET /api/topic-areas - List topic areas (for submission form)."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsEmailVerified]
     serializer_class = TopicAreaSerializer
     queryset = TopicArea.objects.all()

@@ -85,6 +85,19 @@ class SubmissionSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("At most 10 keywords allowed.")
         return kw
 
+    def create(self, validated_data):
+        """Create submission; set agreement timestamps when True."""
+        now = timezone.now()
+        for field, ts_field in [
+            ("originality_confirmation", "originality_confirmed_at"),
+            ("plagiarism_agreement", "plagiarism_agreed_at"),
+            ("ethics_compliance", "ethics_confirmed_at"),
+            ("copyright_agreement", "copyright_agreed_at"),
+        ]:
+            if validated_data.get(field):
+                validated_data[ts_field] = now
+        return super().create(validated_data)
+
     def update(self, instance, validated_data):
         """Set acceptance timestamps when agreements are set to True."""
         now = timezone.now()
