@@ -1,18 +1,18 @@
 """Submission views (author workflow)."""
-import base64
 import uuid
 
 from django.core.files.base import ContentFile
+from django.db.models import Max
 from django.db import transaction
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
-from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from accounts.permissions import IsAuthor
 
-from .models import STATUS_SUBMITTED, Submission, SubmissionSupplementaryFile, SubmissionVersion, TopicArea
+from .models import STATUS_RESUBMITTED, STATUS_REVISION_REQUIRED, STATUS_SUBMITTED, Submission, SubmissionSupplementaryFile, SubmissionVersion, TopicArea
 from .serializers import SubmissionSerializer, TopicAreaSerializer
 from .transitions import validate_transition
 from .validation import validate_submission_ready_for_submit
@@ -23,7 +23,7 @@ class SubmissionViewSet(viewsets.ModelViewSet):
 
     permission_classes = [IsAuthor]
     serializer_class = SubmissionSerializer
-    parser_classes = [JSONParser, MultiPartParser, FormParser]
+    parser_classes = [MultiPartParser, FormParser]
 
     def get_queryset(self):
         return Submission.objects.filter(author=self.request.user).select_related("topic_area").prefetch_related("supplementary_files")
@@ -58,7 +58,9 @@ class SubmissionViewSet(viewsets.ModelViewSet):
 
     def update(self, request, *args, **kwargs):
         """Disable PUT; use PATCH for partial updates."""
-        return Response({"detail": "Use PATCH for partial updates."}, status=status.HTTP_405_METHOD_NOT_ALLOWED)
+        if request.method == "PUT":
+            return Response({"detail": "Use PATCH for partial updates."}, status=status.HTTP_405_METHOD_NOT_ALLOWED)
+        return super().update(request, *args, **kwargs)
 
     def destroy(self, request, *args, **kwargs):
         """Only drafts can be deleted (optional policy)."""
@@ -72,11 +74,11 @@ class SubmissionViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["post"], url_path="upload-file")
     def upload_file(self, request, pk=None):
-        """POST /api/submissions/{id}/upload-file - Upload file. Use form-data (file, file_type) or JSON (base64). Returns file URL."""
+        """POST /api/submissions/{id}/upload-file - Upload file via form-data (file, file_type). Returns file URL."""
         submission = self.get_object()
-        if submission.status != "draft":
+        if submission.status not in ("draft", STATUS_REVISION_REQUIRED):
             return Response(
-                {"detail": "Files can only be uploaded for drafts."},
+                {"detail": "Files can only be uploaded for drafts or when revision is required."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         file_type = (request.data.get("file_type") or "manuscript").strip() or "manuscript"
@@ -87,23 +89,13 @@ class SubmissionViewSet(viewsets.ModelViewSet):
             )
 
         file_obj = request.FILES.get("file")
-        if file_obj:
-            content = file_obj.read()
-            filename = file_obj.name or "file"
-        else:
-            file_base64 = request.data.get("file_base64")
-            filename = request.data.get("filename", "file")
-            if not file_base64:
-                return Response(
-                    {"detail": "Provide 'file' (form-data) or 'file_base64' + 'filename' (JSON). file_type: manuscript | supplementary"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            try:
-                content = base64.b64decode(file_base64, validate=True)
-            except Exception:
-                return Response({"detail": "Invalid base64 encoding."}, status=status.HTTP_400_BAD_REQUEST)
-            if not content:
-                return Response({"detail": "Empty file content."}, status=status.HTTP_400_BAD_REQUEST)
+        if not file_obj:
+            return Response(
+                {"detail": "Provide 'file' in form-data. file_type: manuscript | supplementary"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        content = file_obj.read()
+        filename = file_obj.name or "file"
 
         if file_type == "manuscript":
             ext = filename.rsplit(".", 1)[-1] if "." in filename else "pdf"
@@ -156,6 +148,47 @@ class SubmissionViewSet(viewsets.ModelViewSet):
             SubmissionVersion.objects.create(
                 submission=submission,
                 version_number=1,
+                manuscript_pdf=submission.manuscript_pdf,
+                supplementary_files_snapshot=supp_snapshot,
+            )
+
+        serializer = self.get_serializer(submission)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=["post"], url_path="resubmit")
+    def resubmit(self, request, pk=None):
+        """POST /api/submissions/{id}/resubmit - revision_required -> resubmitted (after author updates)."""
+        submission = self.get_object()
+        try:
+            validate_transition(submission.status, STATUS_RESUBMITTED)
+        except ValueError as e:
+            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            validate_submission_ready_for_submit(submission)
+        except Exception as e:
+            msg = str(getattr(e, "detail", e))
+            return Response({"detail": msg}, status=status.HTTP_400_BAD_REQUEST)
+
+        with transaction.atomic():
+            old_status = submission.status
+            submission.status = STATUS_RESUBMITTED
+            submission.save(update_fields=["status"])
+
+            from audit.services import log
+            log(actor_user=request.user, action_type="submission_resubmitted", target_type="submission", target_id=submission.id, old_value={"status": old_status}, new_value={"status": STATUS_RESUBMITTED})
+
+            from notifications.services import queue_submission_submitted
+            queue_submission_submitted(submission.id, submission.author.email, submission.author.id)
+
+            next_version = (submission.versions.aggregate(max_v=Max("version_number"))["max_v"] or 0) + 1
+            supp_snapshot = [
+                {"name": s.name, "url": s.file.url if s.file else None}
+                for s in submission.supplementary_files.all()
+            ]
+            SubmissionVersion.objects.create(
+                submission=submission,
+                version_number=next_version,
                 manuscript_pdf=submission.manuscript_pdf,
                 supplementary_files_snapshot=supp_snapshot,
             )

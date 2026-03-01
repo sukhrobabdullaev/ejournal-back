@@ -95,7 +95,7 @@ class SubmissionSerializer(serializers.ModelSerializer):
             ("copyright_agreement", "copyright_agreed_at"),
         ]:
             if validated_data.get(field) and not getattr(instance, ts_field):
-                validated_data[ts_field] = now
+                setattr(instance, ts_field, now)
         return super().update(instance, validated_data)
 
 

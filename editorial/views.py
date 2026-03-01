@@ -31,7 +31,7 @@ from .serializers import (
 
 def get_submission_queryset():
     """Submissions visible to editors (all non-draft)."""
-    return Submission.objects.filter(status__ne="draft").select_related(
+    return Submission.objects.exclude(status="draft").select_related(
         "author", "topic_area"
     ).prefetch_related("supplementary_files", "review_assignments")
 

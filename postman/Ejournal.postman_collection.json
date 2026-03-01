@@ -121,18 +121,6 @@
             "url": "{{base_url}}/api/upload-file",
             "description": "Upload file (form-data, key: file), get { url } in response."
           }
-        },
-        {
-          "name": "ORCID Connect",
-          "request": {
-            "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"orcid_id\": \"0000-0002-1234-5678\"\n}"
-            },
-            "url": "{{base_url}}/api/orcid/connect"
-          }
         }
       ]
     },

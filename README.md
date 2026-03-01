@@ -37,8 +37,10 @@ docker compose exec web python manage.py seed_db --sample-users
 2. **Login** → `POST /api/auth/login` → receive `access` + `refresh` tokens
 3. **Create draft** → `POST /api/submissions` → returns `{ id }`
 4. **Fill metadata** → `PATCH /api/submissions/{id}` with `title`, `abstract`, `keywords`, `topic_area_id`, agreements
-5. **Upload file** → `POST /api/upload-file` (JSON, base64) → returns `{ url }`; for submission manuscript/supplementary use `POST /api/submissions/{id}/upload-file` (add `file_type`)
+5. **Upload file** → `POST /api/upload-file` (form-data: `file`) → returns `{ url }`; for submission manuscript/supplementary use `POST /api/submissions/{id}/upload-file` (form-data: `file`, `file_type`)
 6. **Submit** → `POST /api/submissions/{id}/submit` (requires all agreements, title, abstract, 3+ keywords, topic, manuscript)
+
+**If revision required:** Update metadata (`PATCH`), upload revised manuscript (`POST .../upload-file`), then **Resubmit** → `POST /api/submissions/{id}/resubmit`
 
 ### 2. Reviewer role (must be approved by admin)
 
@@ -82,15 +84,15 @@ All auth-protected endpoints use JWT: `Authorization: Bearer <access_token>`.
 | POST      | /api/auth/login                               | -          | Get JWT tokens                                      |
 | POST      | /api/auth/refresh                             | -          | Refresh access token                                |
 | GET/PATCH | /api/me                                       | ✓          | Current user profile                                |
-| POST      | /api/upload-file                              | ✓          | Upload file (JSON, base64). Returns `{ url }`       |
-| POST      | /api/orcid/connect                            | ✓          | Connect ORCID (stub; body: `{ "orcid_id": "..." }`) |
+| POST      | /api/upload-file                              | ✓          | Upload file (form-data). Returns `{ url }`          |
 | GET       | /api/topic-areas                              | ✓          | List topic areas                                    |
 | POST      | /api/submissions                              | ✓          | Create draft                                        |
 | GET       | /api/submissions                              | ✓          | List own submissions                                |
 | GET       | /api/submissions/{id}                         | ✓          | Get submission                                      |
 | PATCH     | /api/submissions/{id}                         | ✓          | Save metadata/agreements                            |
-| POST      | /api/submissions/{id}/upload-file             | ✓          | Upload file (JSON, base64). Returns `{ url }`       |
+| POST      | /api/submissions/{id}/upload-file             | ✓          | Upload file (form-data). Returns `{ url }`          |
 | POST      | /api/submissions/{id}/submit                  | ✓          | Submit for review                                   |
+| POST      | /api/submissions/{id}/resubmit                | ✓          | Resubmit after revision_required                    |
 | DELETE    | /api/submissions/{id}                         | ✓          | Delete draft                                        |
 | GET       | /api/reviewer/assignments                     | ✓ reviewer | List assignments                                    |
 | GET       | /api/reviewer/assignments/{id}                | ✓ reviewer | Assignment detail                                   |
@@ -151,19 +153,12 @@ All requests use `Content-Type: application/json`. Auth: `Authorization: Bearer 
 **PATCH /api/me**
 
 ```json
-{ "full_name": "New Name", "affiliation": "...", "country": "..." }
+{ "full_name": "New Name", "affiliation": "...", "country": "...", "orcid_id": "0000-0002-1234-5678" }
 ```
 
 **POST /api/upload-file** — upload file, get URL
 
-Form-data: key `file` (select file). Or JSON: `{ "file_base64": "...", "filename": "document.pdf" }`.  
-Response: `{ "url": "http://..." }`
-
-**POST /api/orcid/connect**
-
-```json
-{ "orcid_id": "0000-0002-1234-5678" }
-```
+Form-data: key `file` (select file). Response: `{ "url": "http://..." }`
 
 **PATCH /api/submissions/{id}**
 
@@ -182,7 +177,7 @@ Response: `{ "url": "http://..." }`
 
 **POST /api/submissions/{id}/upload-file**
 
-Form-data: `file` (file), `file_type` (`manuscript` or `supplementary`). Or JSON with `file_base64`, `filename`, `file_type`.  
+Form-data: `file` (file), `file_type` (`manuscript` or `supplementary`).  
 Response: `{ "url": "http://...", "file_type": "manuscript" }`.
 
 **POST /api/reviewer/assignments/{id}/submit-review**
