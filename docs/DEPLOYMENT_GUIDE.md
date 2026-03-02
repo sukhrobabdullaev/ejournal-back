@@ -187,6 +187,8 @@ Then run `collectstatic` and ensure `/var/www/ejournal-back/media` and `.../stat
 | Issue | Fix |
 |-------|-----|
 | 502 Bad Gateway | Check `docker compose ps`, `docker compose logs web` |
+| WORKER TIMEOUT / OOM | Use `docker-compose.prod.yml` (2 workers, 120s timeout) |
+| "no URI read" errors | Normal for health checks; gunicorn.conf.py handles it |
 | 404 on /media/ | Verify `alias` path and volume mount |
 | Connection refused | Ensure port 8000 is open, firewall allows 80/443 |
 | SSL not working | Run `sudo certbot --nginx -d api.uzfintex.uz` again |

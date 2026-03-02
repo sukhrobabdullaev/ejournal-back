@@ -1,10 +1,12 @@
-# Production override: use prod settings
+# Production override: use prod settings, fewer workers for low-memory
 # Run: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 
 services:
   web:
     environment:
       DJANGO_SETTINGS_MODULE: ejournal.settings.prod
+      GUNICORN_WORKERS: "2"
+      GUNICORN_TIMEOUT: "120"
 
   celery:
     environment:

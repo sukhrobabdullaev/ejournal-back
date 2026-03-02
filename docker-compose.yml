@@ -29,7 +29,7 @@ services:
       sh -c "python manage.py migrate --noinput &&
              python manage.py collectstatic --noinput &&
              python manage.py seed_db &&
-             gunicorn --bind 0.0.0.0:8000 --workers 3 ejournal.wsgi:application"
+             gunicorn --bind 0.0.0.0:8000 -c gunicorn.conf.py ejournal.wsgi:application"
     volumes:
       - .:/app
       - media_volume:/app/media
