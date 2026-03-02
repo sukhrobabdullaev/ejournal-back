@@ -75,6 +75,8 @@ docker compose exec web python manage.py seed_db --sample-users
 
 ## API Reference
 
+**Frontend devs:** see [docs/API_FRONTEND.md](docs/API_FRONTEND.md) for full request/response shapes, TypeScript types, and workflow.
+
 All auth-protected endpoints use JWT: `Authorization: Bearer <access_token>`.
 
 | Method    | Endpoint                                      | Auth       | Description                                         |
