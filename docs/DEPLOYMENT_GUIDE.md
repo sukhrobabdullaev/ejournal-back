@@ -99,8 +99,11 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 
 ```bash
 cd /var/www/ejournal-back
+mkdir -p media staticfiles
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 ```
+
+Static and media files are written to `./staticfiles` and `./media` on the host so Nginx can serve them.
 
 Check:
 

@@ -32,8 +32,8 @@ services:
              gunicorn --bind 0.0.0.0:8000 -c gunicorn.conf.py ejournal.wsgi:application"
     volumes:
       - .:/app
-      - media_volume:/app/media
-      - static_volume:/app/staticfiles
+      - ./media:/app/media
+      - ./staticfiles:/app/staticfiles
     env_file: .env
     environment:
       DJANGO_SETTINGS_MODULE: ejournal.settings.dev
@@ -53,7 +53,7 @@ services:
     command: celery -A ejournal worker -l info
     volumes:
       - .:/app
-      - media_volume:/app/media
+      - ./media:/app/media
     env_file: .env
     environment:
       DJANGO_SETTINGS_MODULE: ejournal.settings.dev
@@ -68,5 +68,3 @@ services:
 
 volumes:
   postgres_data:
-  media_volume:
-  static_volume:
