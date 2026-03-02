@@ -6,7 +6,8 @@ from .base import *  # noqa: F401, F403
 DEBUG = False
 USE_S3_STORAGE = env.bool("USE_S3_STORAGE", default=False)  # On-premise: local storage
 
-# Security
+# Security (behind Nginx/SSL proxy)
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 SECURE_SSL_REDIRECT = env.bool("SECURE_SSL_REDIRECT", default=True)
 SESSION_COOKIE_SECURE = True
 CSRF_COOKIE_SECURE = True

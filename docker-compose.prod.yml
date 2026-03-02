@@ -1,0 +1,11 @@
+# Production override: use prod settings
+# Run: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+
+services:
+  web:
+    environment:
+      DJANGO_SETTINGS_MODULE: ejournal.settings.prod
+
+  celery:
+    environment:
+      DJANGO_SETTINGS_MODULE: ejournal.settings.prod
