@@ -2,6 +2,24 @@
 from .tasks import send_notification_email, send_review_reminder
 
 
+def queue_email_verification(user_id: int, to_email: str, verification_url: str):
+    """Queue email verification message for new signup."""
+    body = (
+        "Welcome to Ejournal.\n\n"
+        "Please verify your email address by clicking the link below:\n\n"
+        f"{verification_url}\n\n"
+        "If you did not create this account, you can safely ignore this email."
+    )
+    send_notification_email.delay(
+        event_type="email_verification",
+        user_id=user_id,
+        to_email=to_email,
+        subject="Verify your email address",
+        body=body,
+        payload={"verification_url": verification_url},
+    )
+
+
 def queue_submission_submitted(submission_id: int, author_email: str, author_id: int):
     """Queue email when submission is submitted."""
     send_notification_email.delay(
