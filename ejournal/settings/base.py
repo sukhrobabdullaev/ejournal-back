@@ -175,6 +175,9 @@ EMAIL_USE_TLS = env.bool("EMAIL_USE_TLS", default=True)
 EMAIL_HOST_USER = env("EMAIL_HOST_USER", default="")
 EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", default="")
 
+# Frontend URL used in emails (e.g. for verification links)
+FRONTEND_URL = env("FRONTEND_URL", default="http://localhost:3000")
+
 # CORS (for frontend)
 CORS_ALLOWED_ORIGINS = env.list(
     "CORS_ALLOWED_ORIGINS",

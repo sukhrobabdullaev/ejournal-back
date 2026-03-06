@@ -1,15 +1,15 @@
 """Account and auth views."""
-from django.urls import reverse
+from django.conf import settings
 from rest_framework import generics, status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
+from rest_framework.views import APIView
 
 from .models import User
 from .serializers import SignupSerializer, UserSerializer
 from .tokens import generate_email_verification_token, verify_email_verification_token
 from notifications.services import queue_email_verification
-from rest_framework.views import APIView
 
 
 class SignupView(generics.CreateAPIView):
@@ -24,8 +24,8 @@ class SignupView(generics.CreateAPIView):
         user = serializer.save()
 
         token = generate_email_verification_token(user)
-        verify_path = reverse("auth-verify-email")
-        verification_url = request.build_absolute_uri(f"{verify_path}?token={token}")
+        frontend_url = getattr(settings, "FRONTEND_URL", request.build_absolute_uri("/")).rstrip("/")
+        verification_url = f"{frontend_url}/verify-email?token={token}"
         queue_email_verification(user.id, user.email, verification_url)
 
         return Response(
@@ -53,12 +53,11 @@ class MeView(generics.RetrieveUpdateAPIView):
 
 
 class VerifyEmailView(APIView):
-    """GET /api/auth/verify-email?token=... - Verify email address."""
+    """Verify email address (supports GET with query or POST with body)."""
 
     permission_classes = [AllowAny]
 
-    def get(self, request, *args, **kwargs):
-        token = request.query_params.get("token")
+    def _handle(self, token: str | None):
         if not token:
             return Response(
                 {"detail": "Missing token."},
@@ -81,6 +80,55 @@ class VerifyEmailView(APIView):
                 "message": "Email verified successfully.",
                 "email": user.email,
             },
+            status=status.HTTP_200_OK,
+        )
+
+    def get(self, request, *args, **kwargs):
+        """GET /api/auth/verify-email?token=..."""
+        token = request.query_params.get("token")
+        return self._handle(token)
+
+    def post(self, request, *args, **kwargs):
+        """POST /api/auth/verify-email with JSON body {\"token\": \"...\"}."""
+        token = request.data.get("token")
+        return self._handle(token)
+
+
+class ResendVerificationEmailView(APIView):
+    """POST /api/auth/resend-verification - resend verification email."""
+
+    permission_classes = [AllowAny]
+
+    def post(self, request, *args, **kwargs):
+        email = request.data.get("email", "").strip().lower()
+        if not email:
+            return Response(
+                {"detail": "Email is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            user = User.objects.get(email__iexact=email)
+        except User.DoesNotExist:
+            # Do not reveal whether email exists
+            return Response(
+                {"message": "If an account exists for this email, a verification message has been sent."},
+                status=status.HTTP_200_OK,
+            )
+
+        if user.is_email_verified:
+            return Response(
+                {"message": "Email is already verified."},
+                status=status.HTTP_200_OK,
+            )
+
+        token = generate_email_verification_token(user)
+        frontend_url = getattr(settings, "FRONTEND_URL", request.build_absolute_uri("/")).rstrip("/")
+        verification_url = f"{frontend_url}/verify-email?token={token}"
+        queue_email_verification(user.id, user.email, verification_url)
+
+        return Response(
+            {"message": "Verification email sent."},
             status=status.HTTP_200_OK,
         )
 

@@ -3,7 +3,7 @@ from django.urls import path
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 from .jwt_serializers import CustomTokenObtainPairSerializer
-from .views import MeView, SignupView, VerifyEmailView
+from .views import MeView, SignupView, VerifyEmailView, ResendVerificationEmailView
 
 
 class CustomTokenObtainPairView(TokenObtainPairView):
@@ -16,5 +16,6 @@ urlpatterns = [
     path("auth/login", CustomTokenObtainPairView.as_view(), name="auth-login"),
     path("auth/refresh", TokenRefreshView.as_view(), name="auth-refresh"),
     path("auth/verify-email", VerifyEmailView.as_view(), name="auth-verify-email"),
+    path("auth/resend-verification", ResendVerificationEmailView.as_view(), name="auth-resend-verification"),
     path("me", MeView.as_view(), name="me"),
 ]
