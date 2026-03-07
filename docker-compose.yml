@@ -60,6 +60,9 @@ services:
       DATABASE_URL: postgres://ejournal:ejournal@db:5432/ejournal
       CELERY_BROKER_URL: redis://redis:6379/0
       USE_S3_STORAGE: "false"
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
     depends_on:
       db:
         condition: service_healthy
