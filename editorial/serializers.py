@@ -2,6 +2,7 @@
 from django.db.models import ObjectDoesNotExist
 from rest_framework import serializers
 
+from accounts.models import User
 from reviews.models import ReviewAssignment
 from submissions.models import Submission
 from submissions.serializers import SubmissionSupplementaryFileSerializer, TopicAreaSerializer
@@ -92,3 +93,23 @@ class DecisionSerializer(serializers.Serializer):
         required=True,
     )
     decision_letter = serializers.CharField(required=True, allow_blank=False)
+
+
+class ReviewerOptionSerializer(serializers.ModelSerializer):
+    """Lightweight serializer for reviewer dropdown options."""
+
+    is_approved_reviewer = serializers.SerializerMethodField()
+
+    class Meta:
+        model = User
+        fields = [
+            "id",
+            "email",
+            "full_name",
+            "affiliation",
+            "country",
+            "is_approved_reviewer",
+        ]
+
+    def get_is_approved_reviewer(self, obj):
+        return obj.is_approved_reviewer()

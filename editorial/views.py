@@ -1,11 +1,11 @@
 """Editorial views."""
 from django.db import transaction
 from django.utils import timezone
-from rest_framework import status, viewsets
+from rest_framework import generics, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
-from accounts.models import User
+from accounts.models import APPROVAL_APPROVED, ROLE_REVIEWER, User
 from accounts.permissions import IsApprovedEditor
 from reviews.models import ReviewAssignment, STATUS_INVITED
 from submissions.models import (
@@ -26,6 +26,7 @@ from .serializers import (
     DeskRejectSerializer,
     EditorialSubmissionSerializer,
     InviteReviewerSerializer,
+    ReviewerOptionSerializer,
 )
 
 
@@ -337,3 +338,17 @@ class EditorialReviewAssignmentViewSet(viewsets.ViewSet):
             {"detail": "Reminder queued.", "assignment_id": assignment.id},
             status=status.HTTP_200_OK,
         )
+
+
+class ReviewerListView(generics.ListAPIView):
+    """GET /api/editor/reviewers - List approved reviewers for assignment dropdown."""
+
+    permission_classes = [IsApprovedEditor]
+    serializer_class = ReviewerOptionSerializer
+
+    def get_queryset(self):
+        qs = User.objects.filter(
+            reviewer_status=APPROVAL_APPROVED,
+        )
+        # Ensure roles contains 'reviewer' in JSONField
+        return qs.filter(roles__contains=[ROLE_REVIEWER])
