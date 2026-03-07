@@ -4,7 +4,7 @@ Development settings.
 from .base import *  # noqa: F401, F403
 
 DEBUG = True
-ALLOWED_HOSTS = ["localhost", "127.0.0.1", "127.0.0.1:8000"]
+# ALLOWED_HOSTS is inherited from base.py (reads from .env)
 
 # Email backend for dev:
 # - default: console (safe)
