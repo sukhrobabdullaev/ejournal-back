@@ -22,6 +22,7 @@ class ReviewAssignmentSerializer(serializers.ModelSerializer):
     submission_abstract = serializers.CharField(source="submission.abstract", read_only=True)
     submission_version = SubmissionVersionMinimalSerializer(read_only=True)
     manuscript_url = serializers.SerializerMethodField()
+    review = serializers.SerializerMethodField()
 
     class Meta:
         model = ReviewAssignment
@@ -36,6 +37,7 @@ class ReviewAssignmentSerializer(serializers.ModelSerializer):
             "due_date",
             "invited_at",
             "responded_at",
+            "review",
         ]
         read_only_fields = fields
 
@@ -48,6 +50,19 @@ class ReviewAssignmentSerializer(serializers.ModelSerializer):
                 return request.build_absolute_uri(version.manuscript_pdf.url)
             return version.manuscript_pdf.url
         return None
+
+    def get_review(self, obj):
+        """Return review payload if submitted, else None."""
+        review = getattr(obj, "review", None)
+        if not review:
+            return None
+        return {
+            "summary": review.summary,
+            "strengths": review.strengths,
+            "weaknesses": review.weaknesses,
+            "confidential_to_editor": review.confidential_to_editor,
+            "recommendation": review.recommendation,
+        }
 
 
 class ReviewSerializer(serializers.ModelSerializer):
