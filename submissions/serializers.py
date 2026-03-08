@@ -7,6 +7,8 @@ from .models import (
     SubmissionSupplementaryFile,
     SubmissionVersion,
     TopicArea,
+    STATUS_DESK_REJECTED,
+    STATUS_REJECTED,
 )
 
 
@@ -32,6 +34,7 @@ class SubmissionSerializer(serializers.ModelSerializer):
 
     supplementary_files = SubmissionSupplementaryFileSerializer(many=True, read_only=True)
     topic_area = TopicAreaSerializer(read_only=True)
+    reason = serializers.SerializerMethodField()
     topic_area_id = serializers.PrimaryKeyRelatedField(
         queryset=TopicArea.objects.all(),
         source="topic_area",
@@ -46,6 +49,7 @@ class SubmissionSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "status",
+            "reason",
             "title",
             "abstract",
             "keywords",
@@ -60,7 +64,7 @@ class SubmissionSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "status", "supplementary_files", "created_at", "updated_at"]
+        read_only_fields = ["id", "status", "reason", "supplementary_files", "created_at", "updated_at"]
 
     def get_manuscript_pdf(self, obj):
         """Return manuscript URL or None (avoids ValueError on empty FileField)."""
@@ -73,6 +77,13 @@ class SubmissionSerializer(serializers.ModelSerializer):
             return None
         request = self.context.get("request")
         return request.build_absolute_uri(url) if request else url
+
+    def get_reason(self, obj):
+        if obj.status == STATUS_DESK_REJECTED:
+            return obj.desk_reject_reason or ""
+        if obj.status == STATUS_REJECTED:
+            return obj.decision_letter or ""
+        return ""
 
     def validate_keywords(self, value):
         """Ensure keywords is a list of 0-10 strings (3+ required on submit)."""

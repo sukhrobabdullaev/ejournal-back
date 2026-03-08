@@ -107,9 +107,13 @@ class EditorialSubmissionViewSet(viewsets.ReadOnlyModelViewSet):
 
             from notifications.services import queue_status_changed
             queue_status_changed(
-                submission.id, old_status, STATUS_DESK_REJECTED,
-                submission.author.email, submission.author_id,
+                submission.id,
+                old_status,
+                STATUS_DESK_REJECTED,
+                submission.author.email,
+                submission.author_id,
                 idempotency_key=f"status_{submission.id}_{old_status}_{STATUS_DESK_REJECTED}",
+                reason=reason,
             )
 
         serializer_out = self.get_serializer(submission)

@@ -4,7 +4,11 @@ from rest_framework import serializers
 
 from accounts.models import User
 from reviews.models import ReviewAssignment
-from submissions.models import Submission
+from submissions.models import (
+    Submission,
+    STATUS_DESK_REJECTED,
+    STATUS_REJECTED,
+)
 from submissions.serializers import SubmissionSupplementaryFileSerializer, TopicAreaSerializer
 
 
@@ -14,12 +18,14 @@ class EditorialSubmissionSerializer(serializers.ModelSerializer):
     topic_area = TopicAreaSerializer(read_only=True)
     supplementary_files = SubmissionSupplementaryFileSerializer(many=True, read_only=True)
     review_assignments = serializers.SerializerMethodField()
+    reason = serializers.SerializerMethodField()
 
     class Meta:
         model = Submission
         fields = [
             "id",
             "status",
+            "reason",
             "title",
             "abstract",
             "keywords",
@@ -60,6 +66,13 @@ class EditorialSubmissionSerializer(serializers.ModelSerializer):
                 item["review"] = None
             result.append(item)
         return result
+
+    def get_reason(self, obj):
+        if obj.status == STATUS_DESK_REJECTED:
+            return obj.desk_reject_reason or ""
+        if obj.status == STATUS_REJECTED:
+            return obj.decision_letter or ""
+        return ""
 
 
 class DeskRejectSerializer(serializers.Serializer):

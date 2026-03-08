@@ -39,15 +39,34 @@ def queue_status_changed(
     recipient_email: str,
     recipient_id: int | None,
     idempotency_key: str,
+    reason: str | None = None,
 ):
     """Queue status change email (idempotent)."""
+    lines = [
+        f"Submission {submission_id} status changed from {old_status} to {new_status}.",
+    ]
+    if reason:
+        lines.append("")
+        lines.append("Reason:")
+        lines.append("")
+        lines.append(reason)
+
+    body = "\n".join(lines)
+    payload: dict = {
+        "submission_id": submission_id,
+        "old_status": old_status,
+        "new_status": new_status,
+    }
+    if reason:
+        payload["reason"] = reason
+
     send_notification_email.delay(
         event_type="status_changed",
         user_id=recipient_id,
         to_email=recipient_email,
         subject=f"Submission status update: {new_status}",
-        body=f"Submission {submission_id} status changed from {old_status} to {new_status}.",
-        payload={"submission_id": submission_id, "old_status": old_status, "new_status": new_status},
+        body=body,
+        payload=payload,
         idempotency_key=idempotency_key,
     )
 
@@ -138,8 +157,11 @@ def queue_submission_rejected(
         user_id=author_id,
         to_email=author_email,
         subject="Update on your submission",
-        body=f"Your submission (ID: {submission_id}) was not accepted.\n\n{decision_letter}",
-        payload={"submission_id": submission_id},
+        body=(
+            f"Your submission (ID: {submission_id}) was not accepted.\n\n"
+            f"Reason:\n\n{decision_letter}"
+        ),
+        payload={"submission_id": submission_id, "reason": decision_letter},
     )
 
 
