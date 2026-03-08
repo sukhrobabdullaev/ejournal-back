@@ -68,8 +68,10 @@ def send_notification_email(
     )
 
     try:
+        from .email_html import wrap_email_html
+        html_message = wrap_email_html(subject, body)
         backend = get_email_backend()
-        provider_msg_id = backend.send(to_email, subject, body)
+        provider_msg_id = backend.send(to_email, subject, body, html_message=html_message)
         email_log.status = STATUS_SENT
         email_log.provider_message_id = provider_msg_id or ""
         email_log.save()

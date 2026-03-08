@@ -67,15 +67,17 @@ class ProviderBackend(EmailBackend):
         )
         region = getattr(settings, "AWS_SES_REGION", "us-east-1")
         client = boto3.client("ses", region_name=region)
+        body_dict = {"Text": {"Data": body, "Charset": "UTF-8"}}
+        html_message = kwargs.get("html_message")
+        if html_message:
+            body_dict["Html"] = {"Data": html_message, "Charset": "UTF-8"}
         try:
             response = client.send_email(
                 Source=from_email,
                 Destination={"ToAddresses": [to_email]},
                 Message={
                     "Subject": {"Data": subject, "Charset": "UTF-8"},
-                    "Body": {
-                        "Text": {"Data": body, "Charset": "UTF-8"},
-                    },
+                    "Body": body_dict,
                 },
             )
             return response.get("MessageId")

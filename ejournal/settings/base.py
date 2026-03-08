@@ -161,8 +161,9 @@ CELERY_TIMEZONE = TIME_ZONE
 CELERY_TASK_TRACK_STARTED = True
 
 # Email (for notifications)
+JOURNAL_NAME = env("JOURNAL_NAME", default="Ditech Asia")
 DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="noreply@ejournal.local")
-DEFAULT_FROM_NAME = env("DEFAULT_FROM_NAME", default="E-Journal")
+DEFAULT_FROM_NAME = env("DEFAULT_FROM_NAME", default=JOURNAL_NAME)
 EMAIL_USE_PROVIDER = env.bool("EMAIL_USE_PROVIDER", default=False)
 
 # Provider-specific settings (Brevo, SES, etc.)

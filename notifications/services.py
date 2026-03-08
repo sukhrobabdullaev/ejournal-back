@@ -158,3 +158,33 @@ def queue_submission_published(submission_id: int, author_email: str, author_id:
 def queue_review_reminder_email(assignment_id: int):
     """Queue review reminder email (called from editorial remind action)."""
     send_review_reminder.delay(assignment_id)
+
+
+def queue_reviewer_approved(to_email: str, user_id: int):
+    """Queue email when admin approves reviewer role."""
+    send_notification_email.delay(
+        event_type="reviewer_approved",
+        user_id=user_id,
+        to_email=to_email,
+        subject="Your reviewer role has been approved",
+        body=(
+            "Your request to join as a reviewer has been approved. "
+            "You can now log in and accept review assignments when invited."
+        ),
+        payload={"user_id": user_id},
+    )
+
+
+def queue_editor_approved(to_email: str, user_id: int):
+    """Queue email when admin approves editor role."""
+    send_notification_email.delay(
+        event_type="editor_approved",
+        user_id=user_id,
+        to_email=to_email,
+        subject="Your editor role has been approved",
+        body=(
+            "Your request to join as an editor has been approved. "
+            "You can now log in and manage submissions in the editorial dashboard."
+        ),
+        payload={"user_id": user_id},
+    )

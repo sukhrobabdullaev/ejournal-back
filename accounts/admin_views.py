@@ -27,6 +27,9 @@ class ApproveReviewerView(APIView):
         from audit.services import log
         log(actor_user=request.user, action_type="reviewer_approved", target_type="user", target_id=user_id)
 
+        from notifications.services import queue_reviewer_approved
+        queue_reviewer_approved(user.email, user.id)
+
         return Response({"reviewer_status": user.reviewer_status})
 
 
@@ -49,6 +52,9 @@ class ApproveEditorView(APIView):
 
         from audit.services import log
         log(actor_user=request.user, action_type="editor_approved", target_type="user", target_id=user_id)
+
+        from notifications.services import queue_editor_approved
+        queue_editor_approved(user.email, user.id)
 
         return Response({"editor_status": user.editor_status})
 
