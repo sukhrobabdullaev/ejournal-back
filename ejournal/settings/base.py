@@ -162,7 +162,12 @@ CELERY_TASK_TRACK_STARTED = True
 
 # Email (for notifications)
 DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="noreply@ejournal.local")
+DEFAULT_FROM_NAME = env("DEFAULT_FROM_NAME", default="E-Journal")
 EMAIL_USE_PROVIDER = env.bool("EMAIL_USE_PROVIDER", default=False)
+
+# Provider-specific settings (Brevo, SES, etc.)
+EMAIL_PROVIDER = env("EMAIL_PROVIDER", default="brevo")  # brevo, ses, sendgrid
+BREVO_API_KEY = env("BREVO_API_KEY", default="")
 
 # SMTP configuration (e.g. Brevo, on-prem SMTP)
 EMAIL_BACKEND = env(
