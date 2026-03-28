@@ -1,4 +1,6 @@
 """Notification models."""
+import uuid
+
 from django.conf import settings
 from django.db import models
 
@@ -83,3 +85,83 @@ class EmailLog(models.Model):
 
     class Meta:
         db_table = "notifications_email_log"
+
+
+class ReviewerRecognitionCertificate(models.Model):
+    """Recognition certificate issued to author for accepted reviewer recommendation."""
+
+    review = models.OneToOneField(
+        "reviews.Review",
+        on_delete=models.CASCADE,
+        related_name="recognition_certificate",
+    )
+    submission = models.ForeignKey(
+        "submissions.Submission",
+        on_delete=models.CASCADE,
+        related_name="recognition_certificates",
+    )
+    author = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="author_recognition_certificates",
+    )
+    reviewer = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="reviewer_recognition_certificates",
+    )
+    article_title = models.CharField(max_length=500)
+    author_full_name = models.CharField(max_length=255)
+    reviewer_full_name = models.CharField(max_length=255)
+    verification_code = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    issued_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "notifications_reviewer_recognition_certificate"
+        ordering = ["-issued_at"]
+
+    def __str__(self):
+        return f"Certificate #{self.id} | submission={self.submission_id}"
+
+
+class JournalPublicationCertificate(models.Model):
+    """Certificate issued to an author when a journal issue is made/published."""
+
+    issue = models.ForeignKey(
+        "submissions.JournalIssue",
+        on_delete=models.CASCADE,
+        related_name="author_journal_certificates",
+    )
+    submission = models.ForeignKey(
+        "submissions.Submission",
+        on_delete=models.CASCADE,
+        related_name="journal_publication_certificates",
+    )
+    author = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="journal_publication_certificates",
+    )
+    article_title = models.CharField(max_length=500)
+    author_full_name = models.CharField(max_length=255)
+    issue_title = models.CharField(max_length=255)
+    volume = models.PositiveIntegerField()
+    issue_number = models.PositiveIntegerField()
+    publication_year = models.PositiveIntegerField()
+    publication_date = models.DateField(null=True, blank=True)
+    verification_code = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    issued_at = models.DateTimeField(auto_now_add=True)
+    email_sent_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "notifications_journal_publication_certificate"
+        ordering = ["-issued_at"]
+        unique_together = [("issue", "submission", "author")]
+
+    def __str__(self):
+        return (
+            f"JournalCertificate #{self.id} | issue={self.issue_id} | "
+            f"submission={self.submission_id}"
+        )

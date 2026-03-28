@@ -3,6 +3,7 @@ from django.utils import timezone
 from rest_framework import serializers
 
 from .models import (
+    JournalIssue,
     Submission,
     SubmissionSupplementaryFile,
     SubmissionVersion,
@@ -20,6 +21,35 @@ class TopicAreaSerializer(serializers.ModelSerializer):
         fields = ["id", "name", "slug"]
 
 
+class JournalIssueSerializer(serializers.ModelSerializer):
+    """Serializer for journal issue summary."""
+
+    full_issue_pdf_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = JournalIssue
+        fields = [
+            "id",
+            "title",
+            "volume",
+            "issue_number",
+            "publication_year",
+            "publication_date",
+            "full_issue_pdf_url",
+        ]
+
+    def get_full_issue_pdf_url(self, obj):
+        file_obj = obj.full_issue_pdf
+        if not file_obj:
+            return None
+        try:
+            url = file_obj.url
+        except (ValueError, AttributeError):
+            return None
+        request = self.context.get("request")
+        return request.build_absolute_uri(url) if request else url
+
+
 class SubmissionSupplementaryFileSerializer(serializers.ModelSerializer):
     """Serializer for supplementary file."""
 
@@ -34,6 +64,7 @@ class SubmissionSerializer(serializers.ModelSerializer):
 
     supplementary_files = SubmissionSupplementaryFileSerializer(many=True, read_only=True)
     topic_area = TopicAreaSerializer(read_only=True)
+    issue = JournalIssueSerializer(read_only=True)
     reason = serializers.SerializerMethodField()
     topic_area_id = serializers.PrimaryKeyRelatedField(
         queryset=TopicArea.objects.all(),
@@ -43,6 +74,8 @@ class SubmissionSerializer(serializers.ModelSerializer):
         allow_null=True,
     )
     manuscript_pdf = serializers.SerializerMethodField()
+    certificates = serializers.SerializerMethodField()
+    journal_certificates = serializers.SerializerMethodField()
 
     class Meta:
         model = Submission
@@ -61,6 +94,12 @@ class SubmissionSerializer(serializers.ModelSerializer):
             "copyright_agreement",
             "manuscript_pdf",
             "supplementary_files",
+            "certificates",
+            "journal_certificates",
+            "issue",
+            "issue_order",
+            "page_start",
+            "page_end",
             "created_at",
             "updated_at",
         ]
@@ -84,6 +123,28 @@ class SubmissionSerializer(serializers.ModelSerializer):
         if obj.status == STATUS_REJECTED:
             return obj.decision_letter or ""
         return ""
+
+    def get_certificates(self, obj):
+        from notifications.serializers import ReviewerRecognitionCertificateSerializer
+
+        queryset = obj.recognition_certificates.all().order_by("-issued_at")
+        request = self.context.get("request")
+        return ReviewerRecognitionCertificateSerializer(
+            queryset,
+            many=True,
+            context={"request": request},
+        ).data
+
+    def get_journal_certificates(self, obj):
+        from notifications.serializers import JournalPublicationCertificateSerializer
+
+        queryset = obj.journal_publication_certificates.all().order_by("-issued_at")
+        request = self.context.get("request")
+        return JournalPublicationCertificateSerializer(
+            queryset,
+            many=True,
+            context={"request": request},
+        ).data
 
     def validate_keywords(self, value):
         """Ensure keywords is a list of 0-10 strings (3+ required on submit)."""
@@ -124,7 +185,7 @@ class SubmissionSerializer(serializers.ModelSerializer):
 
 
 class SubmissionCreateSerializer(serializers.ModelSerializer):
-    """Minimal serializer for creating a draft."""
+    """Minimal serializer for creating a new submission."""
 
     class Meta:
         model = Submission

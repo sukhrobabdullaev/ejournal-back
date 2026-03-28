@@ -1,11 +1,12 @@
 """Tests for review workflow."""
+
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from rest_framework import status
 from rest_framework.test import APIClient
 
 from accounts.models import APPROVAL_APPROVED, User
-from reviews.models import ReviewAssignment, STATUS_ACCEPTED, STATUS_INVITED, STATUS_REVIEW_SUBMITTED
+from reviews.models import Review, ReviewAssignment, STATUS_ACCEPTED, STATUS_INVITED, STATUS_REVIEW_SUBMITTED
 from submissions.models import Submission, SubmissionVersion, TopicArea
 
 
@@ -98,6 +99,30 @@ class ReviewWorkflowTest(TestCase):
                 "strengths": "Clear",
                 "weaknesses": "None",
                 "recommendation": "accept",
+            },
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        assign.refresh_from_db()
+        self.assertEqual(assign.status, STATUS_REVIEW_SUBMITTED)
+        Review.objects.get(assignment=assign)
+
+    def test_submit_review_reject(self):
+        assign = ReviewAssignment.objects.create(
+            submission=self.submission,
+            submission_version=self.version,
+            reviewer=self.reviewer,
+            invited_email=self.reviewer.email,
+            status=STATUS_ACCEPTED,
+        )
+        self._login(self.reviewer)
+        resp = self.client.post(
+            f"/api/reviewer/assignments/{assign.id}/submit-review/",
+            {
+                "summary": "Needs work",
+                "strengths": "Topic is relevant",
+                "weaknesses": "Method is weak",
+                "recommendation": "reject",
             },
             format="json",
         )

@@ -1,10 +1,13 @@
 """Tests for editorial workflow."""
+from unittest.mock import patch
+
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from rest_framework import status
 from rest_framework.test import APIClient
 
 from accounts.models import APPROVAL_APPROVED, User
+from reviews.models import RECOMMENDATION_ACCEPT, Review, ReviewAssignment, STATUS_ACCEPTED
 from submissions.models import STATUS_DESK_REJECTED, STATUS_SCREENING, STATUS_SUBMITTED, Submission, SubmissionVersion, TopicArea
 
 
@@ -39,6 +42,13 @@ class EditorialWorkflowTest(TestCase):
             keywords=["k1", "k2", "k3"],
             topic_area=self.topic,
         )
+        pdf = SimpleUploadedFile("manuscript.pdf", b"pdf", content_type="application/pdf")
+        self.version = SubmissionVersion.objects.create(
+            submission=self.submission,
+            version_number=1,
+            manuscript_pdf=pdf,
+            supplementary_files_snapshot=[],
+        )
 
     def _login(self, user):
         self.client.force_authenticate(user=user)
@@ -65,24 +75,62 @@ class EditorialWorkflowTest(TestCase):
         self.assertEqual(self.submission.desk_reject_reason, "Out of scope")
 
     def test_decision_accept(self):
-        pdf = SimpleUploadedFile("manuscript.pdf", b"pdf", content_type="application/pdf")
-        SubmissionVersion.objects.create(
+        assignment = ReviewAssignment.objects.create(
             submission=self.submission,
-            version_number=1,
-            manuscript_pdf=pdf,
-            supplementary_files_snapshot=[],
+            submission_version=self.version,
+            invited_email="reviewer@test.com",
+            status=STATUS_ACCEPTED,
+        )
+        review = Review.objects.create(
+            assignment=assignment,
+            summary="Good work",
+            strengths="Clear method",
+            weaknesses="Small issues",
+            confidential_to_editor="",
+            recommendation=RECOMMENDATION_ACCEPT,
         )
         self.submission.status = "decision_pending"
         self.submission.save()
         self._login(self.editor)
-        resp = self.client.post(
-            f"/api/editor/submissions/{self.submission.id}/decision/",
-            {"decision": "accept", "decision_letter": "We are pleased to accept."},
-            format="json",
-        )
+        with patch("notifications.tasks.send_author_reviewer_recognition_certificate.delay") as mock_delay:
+            resp = self.client.post(
+                f"/api/editor/submissions/{self.submission.id}/decision/",
+                {"decision": "accept", "decision_letter": "We are pleased to accept."},
+                format="json",
+            )
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         self.submission.refresh_from_db()
         self.assertEqual(self.submission.status, "accepted")
+        mock_delay.assert_called_once_with(review.id)
+
+    def test_decision_reject_does_not_queue_certificate(self):
+        assignment = ReviewAssignment.objects.create(
+            submission=self.submission,
+            submission_version=self.version,
+            invited_email="reviewer@test.com",
+            status=STATUS_ACCEPTED,
+        )
+        Review.objects.create(
+            assignment=assignment,
+            summary="Needs improvements",
+            strengths="Topic is useful",
+            weaknesses="Weak experiments",
+            confidential_to_editor="",
+            recommendation=RECOMMENDATION_ACCEPT,
+        )
+        self.submission.status = "decision_pending"
+        self.submission.save()
+        self._login(self.editor)
+        with patch("notifications.tasks.send_author_reviewer_recognition_certificate.delay") as mock_delay:
+            resp = self.client.post(
+                f"/api/editor/submissions/{self.submission.id}/decision/",
+                {"decision": "reject", "decision_letter": "Not accepted at this stage."},
+                format="json",
+            )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.submission.refresh_from_db()
+        self.assertEqual(self.submission.status, "rejected")
+        mock_delay.assert_not_called()
 
     def test_publish(self):
         self.submission.status = "accepted"

@@ -16,6 +16,15 @@ def make_author():
         roles=["author"],
     )
 
+def make_reviewer():
+    """Create reviewer-only user."""
+    return User.objects.create_user(
+        email="reviewer_only@test.com",
+        password="testpass123",
+        full_name="Reviewer Only",
+        roles=["reviewer"],
+    )
+
 
 class SubmissionWorkflowTest(TestCase):
     """Test submission create, partial save, submit validation."""
@@ -23,16 +32,17 @@ class SubmissionWorkflowTest(TestCase):
     def setUp(self):
         self.client = APIClient()
         self.author = make_author()
+        self.reviewer = make_reviewer()
         self.topic = TopicArea.objects.create(name="AI", slug="ai")
 
     def _login(self, user):
         self.client.force_authenticate(user=user)
 
-    def test_create_draft(self):
+    def test_create_submission_defaults_to_submitted(self):
         self._login(self.author)
         resp = self.client.post("/api/submissions/", {})
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(resp.data["status"], "draft")
+        self.assertEqual(resp.data["status"], "submitted")
         self.assertEqual(Submission.objects.filter(author=self.author).count(), 1)
 
     def test_submit_without_required_fields_fails(self):
@@ -70,3 +80,8 @@ class SubmissionWorkflowTest(TestCase):
         )
         resp = self.client.post(f"/api/submissions/{sub_id}/submit/")
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_non_author_cannot_create_submission(self):
+        self._login(self.reviewer)
+        resp = self.client.post("/api/submissions/", {})
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)

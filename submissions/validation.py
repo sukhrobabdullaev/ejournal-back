@@ -1,13 +1,15 @@
 """Submission validation helpers."""
 from rest_framework import serializers
 
-from .models import STATUS_DRAFT
+from .models import STATUS_REVISION_REQUIRED, STATUS_SUBMITTED
 
 
 def validate_submission_ready_for_submit(submission):
     """Validate submission has all required data for submit. Raises ValidationError if not."""
-    if submission.status != STATUS_DRAFT:
-        raise serializers.ValidationError("Only drafts can be submitted.")
+    if submission.status not in (STATUS_SUBMITTED, STATUS_REVISION_REQUIRED):
+        raise serializers.ValidationError(
+            "Submission can only be finalized from submitted or revision_required status."
+        )
 
     if not all([
         submission.originality_confirmation,

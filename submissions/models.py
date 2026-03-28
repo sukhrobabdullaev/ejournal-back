@@ -17,7 +17,6 @@ class TopicArea(models.Model):
 
 
 # Submission status constants
-STATUS_DRAFT = "draft"
 STATUS_SUBMITTED = "submitted"
 STATUS_SCREENING = "screening"
 STATUS_DESK_REJECTED = "desk_rejected"
@@ -31,7 +30,6 @@ STATUS_PUBLISHED = "published"
 STATUS_WITHDRAWN = "withdrawn"
 
 STATUS_CHOICES = [
-    (STATUS_DRAFT, "Draft"),
     (STATUS_SUBMITTED, "Submitted"),
     (STATUS_SCREENING, "Screening"),
     (STATUS_DESK_REJECTED, "Desk Rejected"),
@@ -59,6 +57,39 @@ def supplementary_upload_path(instance, filename):
     return f"submissions/{instance.submission_id}/supplementary/{filename}"
 
 
+def issue_pdf_upload_path(instance, filename):
+    """Upload path for generated full issue PDF."""
+    return (
+        f"issues/{instance.publication_year}/v{instance.volume}/"
+        f"i{instance.issue_number}/{filename}"
+    )
+
+
+class JournalIssue(models.Model):
+    """Published journal issue containing ordered articles."""
+
+    title = models.CharField(max_length=255)
+    volume = models.PositiveIntegerField()
+    issue_number = models.PositiveIntegerField()
+    publication_year = models.PositiveIntegerField()
+    publication_date = models.DateField(null=True, blank=True)
+    full_issue_pdf = models.FileField(
+        upload_to=issue_pdf_upload_path,
+        blank=True,
+        null=True,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "submissions_journal_issue"
+        ordering = ["-publication_year", "-volume", "-issue_number"]
+        unique_together = [("volume", "issue_number", "publication_year")]
+
+    def __str__(self):
+        return f"Vol. {self.volume}, Issue {self.issue_number} ({self.publication_year})"
+
+
 class Submission(models.Model):
     """Manuscript submission with step-by-step data."""
 
@@ -67,7 +98,7 @@ class Submission(models.Model):
         on_delete=models.CASCADE,
         related_name="submissions",
     )
-    status = models.CharField(max_length=30, choices=STATUS_CHOICES, default=STATUS_DRAFT)
+    status = models.CharField(max_length=30, choices=STATUS_CHOICES, default=STATUS_SUBMITTED)
 
     # Step 1: Agreements
     originality_confirmation = models.BooleanField(default=False)
@@ -98,6 +129,16 @@ class Submission(models.Model):
     desk_reject_reason = models.TextField(blank=True)
     editorial_decision = models.CharField(max_length=30, blank=True)  # accept, reject, revision_required
     decision_letter = models.TextField(blank=True)
+    issue = models.ForeignKey(
+        JournalIssue,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="articles",
+    )
+    issue_order = models.PositiveIntegerField(null=True, blank=True)
+    page_start = models.PositiveIntegerField(null=True, blank=True)
+    page_end = models.PositiveIntegerField(null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

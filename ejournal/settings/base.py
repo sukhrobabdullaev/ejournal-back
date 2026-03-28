@@ -117,6 +117,10 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 # Media files
 MEDIA_URL = "media/"
 MEDIA_ROOT = env("MEDIA_ROOT", default=str(BASE_DIR / "media"))
+ISSUE_COVER_IMAGE_PATH = env(
+    "ISSUE_COVER_IMAGE_PATH",
+    default=str(BASE_DIR / "assets" / "issue_cover.png"),
+)
 
 # Storage: local FileSystemStorage (on-premise). For S3: pip install django-storages boto3, set USE_S3_STORAGE=True
 USE_S3_STORAGE = env.bool("USE_S3_STORAGE", default=False)

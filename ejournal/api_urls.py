@@ -13,6 +13,7 @@ urlpatterns = [
     path("", include("accounts.urls")),
     path("", include("integrations.urls")),
     path("", include("submissions.urls")),
+    path("certificates/", include("notifications.urls")),
     path("reviewer/", include("reviews.urls")),
     path("editor/", include("editorial.urls")),
     path("editorial-board/", include("editorial_board.urls")),

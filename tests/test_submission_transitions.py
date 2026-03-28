@@ -7,12 +7,6 @@ from submissions.transitions import can_transition, validate_transition
 class SubmissionTransitionsTest(TestCase):
     """Test valid and invalid status transitions."""
 
-    def test_draft_to_submitted_allowed(self):
-        self.assertTrue(can_transition("draft", "submitted"))
-
-    def test_draft_to_screening_not_allowed(self):
-        self.assertFalse(can_transition("draft", "screening"))
-
     def test_submitted_to_screening_allowed(self):
         self.assertTrue(can_transition("submitted", "screening"))
 
@@ -40,14 +34,14 @@ class SubmissionTransitionsTest(TestCase):
     def test_final_states_have_no_outgoing(self):
         for final in ("desk_rejected", "rejected", "published", "withdrawn"):
             self.assertEqual(can_transition(final, "submitted"), False)
-            self.assertEqual(can_transition(final, "draft"), False)
+            self.assertEqual(can_transition(final, "screening"), False)
 
     def test_validate_transition_raises_on_invalid(self):
         with self.assertRaises(ValueError) as ctx:
-            validate_transition("draft", "screening")
+            validate_transition("submitted", "under_review")
         self.assertIn("Invalid status transition", str(ctx.exception))
-        self.assertIn("draft", str(ctx.exception))
-        self.assertIn("screening", str(ctx.exception))
+        self.assertIn("submitted", str(ctx.exception))
+        self.assertIn("under_review", str(ctx.exception))
 
     def test_validate_transition_succeeds_on_valid(self):
-        validate_transition("draft", "submitted")  # No exception
+        validate_transition("submitted", "screening")  # No exception

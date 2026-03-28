@@ -1,17 +1,30 @@
 """Editorial views."""
+import logging
+from io import BytesIO
+from pathlib import Path
+
+from django.conf import settings
+from django.core.files.base import ContentFile
 from django.db import transaction
-from django.utils import timezone
 from rest_framework import generics, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
+
+from PyPDF2 import PdfMerger
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.utils import ImageReader
+from reportlab.pdfgen import canvas
 
 from accounts.models import APPROVAL_APPROVED, ROLE_REVIEWER, User
 from accounts.permissions import IsApprovedEditor
 from reviews.models import ReviewAssignment, STATUS_INVITED
 from submissions.models import (
+    JournalIssue,
     STATUS_ACCEPTED,
     STATUS_DECISION_PENDING,
     STATUS_DESK_REJECTED,
+    STATUS_PUBLISHED,
     STATUS_REJECTED,
     STATUS_REVISION_REQUIRED,
     STATUS_SCREENING,
@@ -22,19 +35,149 @@ from submissions.models import (
 from submissions.transitions import validate_transition
 
 from .serializers import (
+    AcceptedSubmissionOptionSerializer,
     DecisionSerializer,
     DeskRejectSerializer,
     EditorialSubmissionSerializer,
     InviteReviewerSerializer,
+    JournalIssueDetailSerializer,
+    JournalIssueUpsertSerializer,
     ReviewerOptionSerializer,
 )
 
+logger = logging.getLogger(__name__)
+
+
+def get_first_submission_page_size(submissions: list[Submission]) -> tuple[float, float]:
+    """Read first manuscript page size to match cover dimensions."""
+    if not submissions:
+        return A4
+
+    manuscript = submissions[0].manuscript_pdf
+    if not manuscript:
+        return A4
+
+    try:
+        from PyPDF2 import PdfReader
+
+        manuscript.open("rb")
+        reader = PdfReader(manuscript)
+        if not reader.pages:
+            return A4
+        first_page = reader.pages[0]
+        width = float(first_page.mediabox.width)
+        height = float(first_page.mediabox.height)
+        return (width, height)
+    except Exception:
+        logger.exception("Failed to detect first manuscript page size; fallback to A4.")
+        return A4
+    finally:
+        try:
+            manuscript.close()
+        except Exception:
+            pass
+
+
+def build_issue_cover_pdf(page_size: tuple[float, float]) -> bytes:
+    """Render configured cover image into a single PDF page with requested size."""
+    cover_path = Path(settings.ISSUE_COVER_IMAGE_PATH)
+    if not cover_path.exists():
+        raise ValidationError(
+            {"detail": f"Issue cover image not found: {cover_path}"}
+        )
+
+    try:
+        output = BytesIO()
+        c = canvas.Canvas(output, pagesize=page_size)
+        page_width, page_height = page_size
+        c.drawImage(
+            ImageReader(str(cover_path)),
+            0,
+            0,
+            width=page_width,
+            height=page_height,
+            preserveAspectRatio=False,
+            mask="auto",
+        )
+        c.showPage()
+        c.save()
+        return output.getvalue()
+    except Exception as exc:
+        logger.exception("Failed to build issue cover PDF from image: %s", cover_path)
+        raise ValidationError(
+            {"detail": "Failed to render issue cover image."}
+        ) from exc
+
+
+def merge_submission_pdfs(submissions: list[Submission]) -> bytes:
+    """Merge manuscript PDFs into one binary PDF blob."""
+    merger = PdfMerger()
+    opened_files = []
+
+    try:
+        cover_pdf = build_issue_cover_pdf(get_first_submission_page_size(submissions))
+        merger.append(BytesIO(cover_pdf))
+
+        for submission in submissions:
+            manuscript = submission.manuscript_pdf
+            if not manuscript:
+                raise ValidationError(
+                    {"detail": f"Submission #{submission.id} has no manuscript PDF."}
+                )
+            manuscript.open("rb")
+            opened_files.append(manuscript)
+            merger.append(manuscript)
+
+        output = BytesIO()
+        merger.write(output)
+        return output.getvalue()
+    except Exception as exc:
+        logger.exception("Issue PDF merge failed.")
+        if isinstance(exc, ValidationError):
+            raise
+        raise ValidationError({"detail": "Failed to merge manuscript PDFs."}) from exc
+    finally:
+        merger.close()
+        for file_obj in opened_files:
+            try:
+                file_obj.close()
+            except Exception:
+                logger.warning("Failed to close manuscript file handle.")
+
+
+def get_submission_pdf_page_count(submission: Submission) -> int:
+    """Read manuscript PDF and return page count."""
+    manuscript = submission.manuscript_pdf
+    if not manuscript:
+        raise ValidationError({"detail": f"Submission #{submission.id} has no manuscript PDF."})
+    try:
+        from PyPDF2 import PdfReader
+
+        manuscript.open("rb")
+        reader = PdfReader(manuscript)
+        page_count = len(reader.pages)
+        return page_count if page_count > 0 else 1
+    except Exception as exc:
+        logger.exception("Failed to read manuscript pages for submission_id=%s", submission.id)
+        raise ValidationError(
+            {"detail": f"Cannot read PDF pages for submission #{submission.id}."}
+        ) from exc
+    finally:
+        try:
+            manuscript.close()
+        except Exception:
+            pass
+
 
 def get_submission_queryset():
-    """Submissions visible to editors (all non-draft)."""
-    return Submission.objects.exclude(status="draft").select_related(
-        "author", "topic_area"
-    ).prefetch_related("supplementary_files", "review_assignments", "review_assignments__review")
+    """Submissions visible to editors (initial finalize completed)."""
+    return (
+        Submission.objects
+        .filter(versions__isnull=False)
+        .select_related("author", "topic_area")
+        .prefetch_related("supplementary_files", "review_assignments", "review_assignments__review")
+        .distinct()
+    )
 
 
 class EditorialSubmissionViewSet(viewsets.ReadOnlyModelViewSet):
@@ -289,6 +432,22 @@ class EditorialSubmissionViewSet(viewsets.ReadOnlyModelViewSet):
                 queue_revision_requested(submission.id, author.email, author.id, decision_letter)
             elif decision == "accept":
                 queue_submission_accepted(submission.id, author.email, author.id)
+                review_ids = list(
+                    submission.review_assignments.filter(review__isnull=False).values_list(
+                        "review__id", flat=True
+                    )
+                )
+                if review_ids:
+                    from notifications.tasks import send_author_reviewer_recognition_certificate
+
+                    for review_id in review_ids:
+                        try:
+                            send_author_reviewer_recognition_certificate.delay(review_id)
+                        except Exception:
+                            logger.exception(
+                                "Failed to queue reviewer recognition certificate for review_id=%s",
+                                review_id,
+                            )
             elif decision == "reject":
                 queue_submission_rejected(submission.id, author.email, author.id, decision_letter)
 
@@ -342,6 +501,223 @@ class EditorialReviewAssignmentViewSet(viewsets.ViewSet):
             {"detail": "Reminder queued.", "assignment_id": assignment.id},
             status=status.HTTP_200_OK,
         )
+
+
+class JournalIssueViewSet(viewsets.ModelViewSet):
+    """Editor-only issue builder endpoints (Make Journal)."""
+
+    permission_classes = [IsApprovedEditor]
+    serializer_class = JournalIssueDetailSerializer
+    queryset = JournalIssue.objects.prefetch_related("articles", "articles__author").all()
+    http_method_names = ["get", "post", "put", "patch", "head", "options"]
+
+    def get_serializer_class(self):
+        if self.action in ("create", "update", "partial_update"):
+            return JournalIssueUpsertSerializer
+        if self.action == "accepted_submissions":
+            return AcceptedSubmissionOptionSerializer
+        return JournalIssueDetailSerializer
+
+    @action(detail=False, methods=["get"], url_path="accepted-submissions")
+    def accepted_submissions(self, request):
+        """List accepted/published submissions available for issue publishing/editing."""
+        queryset = (
+            Submission.objects
+            .filter(status__in=[STATUS_ACCEPTED, STATUS_PUBLISHED], issue__isnull=True)
+            .select_related("author")
+            .order_by("-updated_at")
+        )
+        serializer = AcceptedSubmissionOptionSerializer(
+            queryset,
+            many=True,
+            context={"request": request},
+        )
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def _resolve_submissions_for_issue(self, issue, article_items):
+        submission_ids = [item["submission_id"] for item in article_items]
+        submissions = (
+            Submission.objects
+            .filter(id__in=submission_ids)
+            .select_related("author")
+        )
+        submission_map = {submission.id: submission for submission in submissions}
+        missing = [submission_id for submission_id in submission_ids if submission_id not in submission_map]
+        if missing:
+            raise ValidationError({"detail": f"Submissions not found: {', '.join(map(str, missing))}"})
+
+        resolved_items = []
+        for payload in sorted(article_items, key=lambda item: item["order"]):
+            submission = submission_map[payload["submission_id"]]
+            is_existing_article = bool(issue and submission.issue_id == issue.id)
+
+            if issue is None and submission.status not in [STATUS_ACCEPTED, STATUS_PUBLISHED]:
+                raise ValidationError(
+                    {
+                        "detail": (
+                            f"Submission #{submission.id} must be 'accepted' or 'published'. "
+                            f"Current status: {submission.status}."
+                        )
+                    }
+                )
+
+            if (
+                issue is not None
+                and not is_existing_article
+                and submission.status not in [STATUS_ACCEPTED, STATUS_PUBLISHED]
+            ):
+                raise ValidationError(
+                    {
+                        "detail": (
+                            f"Submission #{submission.id} must be 'accepted' or 'published' "
+                            f"to add into this issue. "
+                            f"Current status: {submission.status}."
+                        )
+                    }
+                )
+
+            if submission.issue_id and not is_existing_article:
+                raise ValidationError(
+                    {
+                        "detail": (
+                            f"Submission #{submission.id} is already assigned to issue #{submission.issue_id}."
+                        )
+                    }
+                )
+
+            if not submission.manuscript_pdf:
+                raise ValidationError({"detail": f"Submission #{submission.id} has no manuscript PDF."})
+
+            resolved_items.append((payload, submission))
+
+        return resolved_items
+
+    def _generate_issue_title(self, payload):
+        title = (payload.get("title") or "").strip()
+        if title:
+            return title
+        return (
+            f"Volume {payload['volume']}, Issue {payload['issue_number']} "
+            f"({payload['publication_year']})"
+        )
+
+    def _create_or_update_issue(self, issue, payload):
+        resolved_items = self._resolve_submissions_for_issue(issue, payload["articles"])
+        ordered_submissions = [submission for _, submission in resolved_items]
+        merged_pdf_bytes = merge_submission_pdfs(ordered_submissions)
+        issue_title = self._generate_issue_title(payload)
+
+        if issue is None:
+            if JournalIssue.objects.filter(
+                volume=payload["volume"],
+                issue_number=payload["issue_number"],
+                publication_year=payload["publication_year"],
+            ).exists():
+                raise ValidationError(
+                    {"detail": "This volume/issue/year combination already exists."}
+                )
+            issue = JournalIssue(
+                title=issue_title,
+                volume=payload["volume"],
+                issue_number=payload["issue_number"],
+                publication_year=payload["publication_year"],
+                publication_date=payload.get("publication_date"),
+            )
+        else:
+            duplicate_exists = JournalIssue.objects.filter(
+                volume=payload["volume"],
+                issue_number=payload["issue_number"],
+                publication_year=payload["publication_year"],
+            ).exclude(id=issue.id).exists()
+            if duplicate_exists:
+                raise ValidationError(
+                    {"detail": "Another issue already exists with this volume/issue/year."}
+                )
+            issue.title = issue_title
+            issue.volume = payload["volume"]
+            issue.issue_number = payload["issue_number"]
+            issue.publication_year = payload["publication_year"]
+            issue.publication_date = payload.get("publication_date")
+
+        pdf_name = (
+            f"volume_{payload['volume']}_issue_{payload['issue_number']}_"
+            f"{payload['publication_year']}.pdf"
+        )
+
+        with transaction.atomic():
+            issue.full_issue_pdf.save(pdf_name, ContentFile(merged_pdf_bytes), save=False)
+            issue.save()
+
+            selected_ids = [submission.id for _, submission in resolved_items]
+            Submission.objects.filter(issue=issue).exclude(id__in=selected_ids).update(
+                issue=None,
+                issue_order=None,
+                page_start=None,
+                page_end=None,
+            )
+
+            cursor = 1
+            for article_payload, submission in resolved_items:
+                page_count = get_submission_pdf_page_count(submission)
+                page_start = cursor
+                page_end = cursor + page_count - 1
+
+                submission.issue = issue
+                submission.issue_order = article_payload["order"]
+                submission.page_start = page_start
+                submission.page_end = page_end
+                submission.status = STATUS_PUBLISHED
+                submission.save(
+                    update_fields=[
+                        "issue",
+                        "issue_order",
+                        "page_start",
+                        "page_end",
+                        "status",
+                        "updated_at",
+                    ]
+                )
+                cursor = page_end + 1
+
+        return issue
+
+    def create(self, request, *args, **kwargs):
+        """Create and publish a new issue + merged PDF."""
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        issue = self._create_or_update_issue(issue=None, payload=serializer.validated_data)
+        try:
+            from notifications.tasks import send_issue_author_journal_certificate_emails
+
+            send_issue_author_journal_certificate_emails.delay(issue.id)
+        except Exception:
+            logger.exception(
+                "Failed to queue journal certificate email task for issue_id=%s",
+                issue.id,
+            )
+        output = JournalIssueDetailSerializer(issue, context={"request": request})
+        return Response(output.data, status=status.HTTP_201_CREATED)
+
+    def update(self, request, *args, **kwargs):
+        """Edit existing issue metadata/articles and rebuild merged PDF."""
+        issue = self.get_object()
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        updated_issue = self._create_or_update_issue(issue=issue, payload=serializer.validated_data)
+        try:
+            from notifications.tasks import send_issue_author_journal_certificate_emails
+
+            send_issue_author_journal_certificate_emails.delay(updated_issue.id)
+        except Exception:
+            logger.exception(
+                "Failed to queue journal certificate email task for issue_id=%s",
+                updated_issue.id,
+            )
+        output = JournalIssueDetailSerializer(updated_issue, context={"request": request})
+        return Response(output.data, status=status.HTTP_200_OK)
+
+    def partial_update(self, request, *args, **kwargs):
+        return self.update(request, *args, **kwargs)
 
 
 class ReviewerListView(generics.ListAPIView):

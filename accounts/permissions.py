@@ -1,68 +1,52 @@
-"""Custom permission classes for role-based access."""
 from rest_framework import permissions
 
-from .models import ROLE_AUTHOR, ROLE_EDITOR, ROLE_REVIEWER
-
-
 class IsEmailVerified(permissions.BasePermission):
-    """User must have verified email. Staff users are exempt."""
-
-    message = "Email verification required."
+    message = "Ushbu amalni bajarish uchun elektron pochtangiz tasdiqlangan bo'lishi shart."
 
     def has_permission(self, request, view):
-        if not request.user or not request.user.is_authenticated:
+        user = request.user
+        if not user or not user.is_authenticated:
             return False
-        if request.user.is_staff:
-            return True
-        return request.user.is_email_verified
-
-
-class IsAuthor(permissions.BasePermission):
-    """User must have active author role and verified email."""
-
-    message = "Author role required."
-
-    def has_permission(self, request, view):
-        if not request.user or not request.user.is_authenticated:
-            return False
-        if not request.user.is_staff and not request.user.is_email_verified:
-            self.message = "Email verification required."
-            return False
-        if not request.user.has_role(ROLE_AUTHOR):
-            self.message = "Author role required."
-            return False
-        return True
-
-
-class IsApprovedReviewer(permissions.BasePermission):
-    """User must have reviewer role + approved status + verified email."""
-
-    message = "Approved reviewer role required."
-
-    def has_permission(self, request, view):
-        if not request.user or not request.user.is_authenticated:
-            return False
-        if not request.user.is_staff and not request.user.is_email_verified:
-            self.message = "Email verification required."
-            return False
-        if not request.user.is_approved_reviewer():
-            self.message = "Approved reviewer role required."
-            return False
-        return True
-
+            
+        return getattr(user, 'is_email_verified', False) is True
 
 class IsApprovedEditor(permissions.BasePermission):
-    """User must have editor role + approved status + verified email."""
-
-    message = "Approved editor role required."
+    message = "Sizning Editor rolingiz hali tasdiqlanmagan yoki sizda bu rol yo'q."
 
     def has_permission(self, request, view):
-        if not request.user or not request.user.is_authenticated:
+        user = request.user
+        if not user or not user.is_authenticated:
             return False
-        if not request.user.is_staff and not request.user.is_email_verified:
-            self.message = "Email verification required."
+            
+        roles = getattr(user, 'roles', []) or []
+        has_role = 'editor' in roles
+        is_approved = getattr(user, 'editor_status', None) == 'approved' or getattr(user, 'is_approved_editor', False)
+        
+        return bool(has_role and is_approved)
+
+class IsApprovedReviewer(permissions.BasePermission):
+    message = "Sizning Taqrizchi rolingiz tasdiqlanmagan yoki sizda bu rol yo'q."
+
+    def has_permission(self, request, view):
+        user = request.user
+        if not user or not user.is_authenticated:
             return False
-        if not request.user.is_approved_editor():
-            self.message = "Approved editor role required."
+            
+        roles = getattr(user, 'roles', []) or []
+        has_role = 'reviewer' in roles
+        is_approved = getattr(user, 'reviewer_status', None) == 'approved' or getattr(user, 'is_approved_reviewer', False)
+        
+        return bool(has_role and is_approved)
+
+class IsAuthor(permissions.BasePermission):
+    message = "Sizda Muallif (Author) roli yo'q."
+
+    def has_permission(self, request, view):
+        user = request.user
+        if not user or not user.is_authenticated:
             return False
-        return True
+            
+        roles = getattr(user, 'roles', []) or []
+        has_role = 'author' in roles
+        
+        return bool(has_role)

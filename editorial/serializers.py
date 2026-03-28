@@ -5,17 +5,25 @@ from rest_framework import serializers
 from accounts.models import User
 from reviews.models import ReviewAssignment
 from submissions.models import (
+    JournalIssue,
+    STATUS_ACCEPTED,
     Submission,
     STATUS_DESK_REJECTED,
+    STATUS_PUBLISHED,
     STATUS_REJECTED,
 )
-from submissions.serializers import SubmissionSupplementaryFileSerializer, TopicAreaSerializer
+from submissions.serializers import (
+    JournalIssueSerializer,
+    SubmissionSupplementaryFileSerializer,
+    TopicAreaSerializer,
+)
 
 
 class EditorialSubmissionSerializer(serializers.ModelSerializer):
     """Serializer for editorial submission list/detail."""
 
     topic_area = TopicAreaSerializer(read_only=True)
+    issue = JournalIssueSerializer(read_only=True)
     supplementary_files = SubmissionSupplementaryFileSerializer(many=True, read_only=True)
     review_assignments = serializers.SerializerMethodField()
     reason = serializers.SerializerMethodField()
@@ -34,6 +42,10 @@ class EditorialSubmissionSerializer(serializers.ModelSerializer):
             "desk_reject_reason",
             "editorial_decision",
             "decision_letter",
+            "issue",
+            "issue_order",
+            "page_start",
+            "page_end",
             "manuscript_pdf",
             "supplementary_files",
             "created_at",
@@ -126,3 +138,200 @@ class ReviewerOptionSerializer(serializers.ModelSerializer):
 
     def get_is_approved_reviewer(self, obj):
         return obj.is_approved_reviewer()
+
+
+class IssueArticleInputSerializer(serializers.Serializer):
+    """Editor payload item for ordering accepted submissions inside an issue."""
+
+    submission_id = serializers.IntegerField(required=True, min_value=1)
+    order = serializers.IntegerField(required=True, min_value=1)
+    page_start = serializers.IntegerField(required=False, allow_null=True, min_value=1)
+    page_end = serializers.IntegerField(required=False, allow_null=True, min_value=1)
+
+    def validate(self, attrs):
+        page_start = attrs.get("page_start")
+        page_end = attrs.get("page_end")
+        if page_start and page_end and page_end < page_start:
+            raise serializers.ValidationError("page_end must be greater than or equal to page_start.")
+        return attrs
+
+
+class JournalIssueUpsertSerializer(serializers.Serializer):
+    """Create/update payload for issue publishing + PDF merge."""
+
+    title = serializers.CharField(required=False, allow_blank=True, max_length=255)
+    volume = serializers.IntegerField(required=True, min_value=1)
+    issue_number = serializers.IntegerField(required=True, min_value=1)
+    publication_year = serializers.IntegerField(required=False, min_value=1900, max_value=3000)
+    publication_date = serializers.DateField(required=False, allow_null=True)
+    articles = IssueArticleInputSerializer(many=True, required=True, min_length=1)
+
+    def validate(self, attrs):
+        publication_date = attrs.get("publication_date")
+        publication_year = attrs.get("publication_year")
+
+        if publication_date:
+            if publication_year and publication_year != publication_date.year:
+                raise serializers.ValidationError(
+                    "publication_year must match publication_date year."
+                )
+            attrs["publication_year"] = publication_date.year
+        elif not publication_year:
+            raise serializers.ValidationError(
+                "Provide publication_year or publication_date."
+            )
+
+        return attrs
+
+    def validate_articles(self, value):
+        submission_ids = [item["submission_id"] for item in value]
+        if len(submission_ids) != len(set(submission_ids)):
+            raise serializers.ValidationError("Each submission can only be added once.")
+
+        orders = [item["order"] for item in value]
+        if len(orders) != len(set(orders)):
+            raise serializers.ValidationError("Order values must be unique.")
+
+        return value
+
+
+class AcceptedSubmissionOptionSerializer(serializers.ModelSerializer):
+    """Minimal accepted article serializer for Make Journal UI."""
+
+    author_name = serializers.CharField(source="author.full_name", read_only=True)
+    author_email = serializers.CharField(source="author.email", read_only=True)
+    manuscript_pdf_url = serializers.SerializerMethodField()
+    manuscript_page_count = serializers.SerializerMethodField()
+    is_already_assigned = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Submission
+        fields = [
+            "id",
+            "status",
+            "title",
+            "author_name",
+            "author_email",
+            "created_at",
+            "updated_at",
+            "manuscript_pdf_url",
+            "manuscript_page_count",
+            "is_already_assigned",
+            "issue",
+            "issue_order",
+            "page_start",
+            "page_end",
+        ]
+
+    def get_manuscript_pdf_url(self, obj):
+        if not obj.manuscript_pdf:
+            return None
+        request = self.context.get("request")
+        return request.build_absolute_uri(obj.manuscript_pdf.url) if request else obj.manuscript_pdf.url
+
+    def get_manuscript_page_count(self, obj):
+        if not obj.manuscript_pdf:
+            return None
+        try:
+            from PyPDF2 import PdfReader
+
+            obj.manuscript_pdf.open("rb")
+            reader = PdfReader(obj.manuscript_pdf)
+            return len(reader.pages)
+        except Exception:
+            return None
+        finally:
+            try:
+                obj.manuscript_pdf.close()
+            except Exception:
+                pass
+
+    def get_is_already_assigned(self, obj):
+        return bool(obj.issue_id)
+
+
+class JournalIssueArticleSerializer(serializers.ModelSerializer):
+    """Article rows displayed in issue TOC."""
+
+    author_name = serializers.CharField(source="author.full_name", read_only=True)
+    manuscript_pdf_url = serializers.SerializerMethodField()
+    manuscript_page_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Submission
+        fields = [
+            "id",
+            "title",
+            "author_name",
+            "issue_order",
+            "page_start",
+            "page_end",
+            "manuscript_page_count",
+            "status",
+            "manuscript_pdf_url",
+        ]
+
+    def get_manuscript_pdf_url(self, obj):
+        if not obj.manuscript_pdf:
+            return None
+        request = self.context.get("request")
+        return request.build_absolute_uri(obj.manuscript_pdf.url) if request else obj.manuscript_pdf.url
+
+    def get_manuscript_page_count(self, obj):
+        if not obj.manuscript_pdf:
+            return None
+        try:
+            from PyPDF2 import PdfReader
+
+            obj.manuscript_pdf.open("rb")
+            reader = PdfReader(obj.manuscript_pdf)
+            return len(reader.pages)
+        except Exception:
+            return None
+        finally:
+            try:
+                obj.manuscript_pdf.close()
+            except Exception:
+                pass
+
+
+class JournalIssueDetailSerializer(serializers.ModelSerializer):
+    """Issue serializer with table of contents."""
+
+    full_issue_pdf_url = serializers.SerializerMethodField()
+    articles = serializers.SerializerMethodField()
+
+    class Meta:
+        model = JournalIssue
+        fields = [
+            "id",
+            "title",
+            "volume",
+            "issue_number",
+            "publication_year",
+            "publication_date",
+            "full_issue_pdf_url",
+            "created_at",
+            "updated_at",
+            "articles",
+        ]
+
+    def get_full_issue_pdf_url(self, obj):
+        if not obj.full_issue_pdf:
+            return None
+        request = self.context.get("request")
+        return request.build_absolute_uri(obj.full_issue_pdf.url) if request else obj.full_issue_pdf.url
+
+    def get_articles(self, obj):
+        queryset = (
+            obj.articles
+            .select_related("author")
+            .filter(status__in=[STATUS_ACCEPTED, STATUS_PUBLISHED])
+            .order_by("issue_order", "id")
+        )
+        serializer = JournalIssueArticleSerializer(
+            queryset,
+            many=True,
+            context=self.context,
+        )
+        return serializer.data

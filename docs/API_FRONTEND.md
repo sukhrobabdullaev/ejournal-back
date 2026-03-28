@@ -1,4 +1,4 @@
-# Ejournal API — Frontend Developer Guide
+﻿# Ejournal API вЂ” Frontend Developer Guide
 
 Complete API reference for building the journal frontend.
 
@@ -28,10 +28,10 @@ Requests use `Content-Type: application/json` except for file uploads (`multipar
 
 ## Auth Flow
 
-1. **Signup** → `POST /api/auth/signup`
-2. **Login** → `POST /api/auth/login` → receive `access` and `refresh`
+1. **Signup** в†’ `POST /api/auth/signup`
+2. **Login** в†’ `POST /api/auth/login` в†’ receive `access` and `refresh`
 3. Store `access` in memory (or secure storage)
-4. On 401, call **Refresh** → `POST /api/auth/refresh` with `refresh` token
+4. On 401, call **Refresh** в†’ `POST /api/auth/refresh` with `refresh` token
 5. If refresh fails, redirect to login
 
 ---
@@ -41,8 +41,8 @@ Requests use `Content-Type: application/json` except for file uploads (`multipar
 | Status | Format |
 |--------|--------|
 | 400 | `{ "detail": "Error message" }` or `{ "field": ["error"] }` |
-| 401 | `{ "detail": "..." }` — token invalid/expired |
-| 403 | `{ "detail": "..." }` — permission denied |
+| 401 | `{ "detail": "..." }` вЂ” token invalid/expired |
+| 403 | `{ "detail": "..." }` вЂ” permission denied |
 | 404 | `{ "detail": "Not found." }` |
 
 ---
@@ -367,12 +367,6 @@ Resubmit after revision_required.
 
 ---
 
-#### DELETE /api/submissions/{id}
-
-Delete draft only.
-
----
-
 ### Reviewer (role: reviewer, reviewer_status: approved, is_email_verified)
 
 #### GET /api/reviewer/assignments
@@ -517,13 +511,13 @@ Submission detail (same shape).
 
 #### POST /api/editor/submissions/{id}/start-screening
 
-submitted → screening. Body: `{}`
+submitted в†’ screening. Body: `{}`
 
 ---
 
 #### POST /api/editor/submissions/{id}/desk-reject
 
-screening → desk_rejected.
+screening в†’ desk_rejected.
 
 **Request:** `{ "reason": "Out of scope." }`
 
@@ -531,7 +525,7 @@ screening → desk_rejected.
 
 #### POST /api/editor/submissions/{id}/send-to-review
 
-screening → under_review. Body: `{}`
+screening в†’ under_review. Body: `{}`
 
 ---
 
@@ -551,7 +545,7 @@ screening → under_review. Body: `{}`
 
 #### POST /api/editor/submissions/{id}/move-to-decision
 
-under_review → decision_pending. Body: `{}`
+under_review в†’ decision_pending. Body: `{}`
 
 ---
 
@@ -571,7 +565,7 @@ under_review → decision_pending. Body: `{}`
 
 #### POST /api/editor/submissions/{id}/publish
 
-accepted → published. Body: `{}`
+accepted в†’ published. Body: `{}`
 
 ---
 
@@ -610,9 +604,9 @@ Approve editor. Body: `{}`
 ## Status Flow
 
 ```
-draft → submitted → screening → under_review → decision_pending → accepted → published
-                ↘ desk_rejected        ↘ revision_required → resubmitted → under_review
-                                       ↘ rejected
+draft в†’ submitted в†’ screening в†’ under_review в†’ decision_pending в†’ accepted в†’ published
+                в† desk_rejected        в† revision_required в†’ resubmitted в†’ under_review
+                                       в† rejected
 ```
 
 ---
@@ -636,8 +630,8 @@ draft → submitted → screening → under_review → decision_pending → acce
 
 ## File URLs
 
-- **Manuscript:** `manuscript_pdf` in submission — full URL
-- **Supplementary:** `supplementary_files[].file` — full URL
+- **Manuscript:** `manuscript_pdf` in submission вЂ” full URL
+- **Supplementary:** `supplementary_files[].file` вЂ” full URL
 - **Media base:** `https://api.yourdomain.com/media/`
 - **Static:** `https://api.yourdomain.com/static/`
 
@@ -646,3 +640,4 @@ draft → submitted → screening → under_review → decision_pending → acce
 ## Postman
 
 Import `postman/Ejournal.postman_collection.json`. Set `base_url` and `access_token` in collection variables.
+

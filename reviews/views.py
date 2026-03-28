@@ -1,4 +1,5 @@
 """Reviewer views."""
+
 from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -7,7 +8,14 @@ from rest_framework.response import Response
 
 from accounts.permissions import IsApprovedReviewer
 
-from .models import STATUS_ACCEPTED, STATUS_DECLINED, STATUS_INVITED, STATUS_REVIEW_SUBMITTED, Review, ReviewAssignment
+from .models import (
+    STATUS_ACCEPTED,
+    STATUS_DECLINED,
+    STATUS_INVITED,
+    STATUS_REVIEW_SUBMITTED,
+    Review,
+    ReviewAssignment,
+)
 from .serializers import ReviewAssignmentSerializer, ReviewSerializer
 
 
@@ -97,7 +105,7 @@ class ReviewAssignmentViewSet(viewsets.ReadOnlyModelViewSet):
         serializer = ReviewSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        Review.objects.create(
+        review = Review.objects.create(
             assignment=assignment,
             **serializer.validated_data,
         )
@@ -137,7 +145,7 @@ class AcceptByTokenView(viewsets.ViewSet):
         return Response(serializer.data)
 
     def create(self, request):
-        """POST /api/reviewer/accept-by-token - Accept by token, linking to current user. Body: {token: "..."}."""
+        """POST /api/reviewer/accept-by-token - Accept by token, linking to current user."""
         token = request.data.get("token")
         if not token:
             return Response({"detail": "Token required in body."}, status=status.HTTP_400_BAD_REQUEST)
@@ -162,6 +170,42 @@ class AcceptByTokenView(viewsets.ViewSet):
         editor_emails = get_editor_emails()
         if editor_emails:
             queue_reviewer_accepted(assignment.id, editor_emails, assignment.submission.title or "Untitled")
+
+        serializer = ReviewAssignmentSerializer(assignment, context={"request": request})
+        return Response(serializer.data)
+
+
+class DeclineByTokenView(viewsets.ViewSet):
+    """Decline review assignment by secure token."""
+
+    permission_classes = [IsAuthenticated, IsApprovedReviewer]
+
+    def create(self, request):
+        """POST /api/reviewer/decline-by-token - Decline by token, linking to current user."""
+        token = request.data.get("token")
+        if not token:
+            return Response({"detail": "Token required in body."}, status=status.HTTP_400_BAD_REQUEST)
+
+        assignment = ReviewAssignment.objects.filter(token=token).select_related("submission").first()
+        if not assignment:
+            return Response({"detail": "Invalid or expired token."}, status=status.HTTP_404_NOT_FOUND)
+        if assignment.status != STATUS_INVITED:
+            return Response(
+                {"detail": "This invitation has already been responded to."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        assignment.reviewer = request.user
+        assignment.status = STATUS_DECLINED
+        assignment.responded_at = timezone.now()
+        assignment.save(update_fields=["reviewer", "status", "responded_at"])
+        from audit.services import log
+        log(actor_user=request.user, action_type="reviewer_declined", target_type="review_assignment", target_id=assignment.id, old_value={"status": STATUS_INVITED}, new_value={"status": STATUS_DECLINED})
+        from editorial.utils import get_editor_emails
+        from notifications.services import queue_reviewer_declined
+        editor_emails = get_editor_emails()
+        if editor_emails:
+            queue_reviewer_declined(assignment.id, editor_emails, assignment.submission.title or "Untitled")
 
         serializer = ReviewAssignmentSerializer(assignment, context={"request": request})
         return Response(serializer.data)

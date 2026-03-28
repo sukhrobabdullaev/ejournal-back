@@ -20,6 +20,8 @@ class ReviewAssignmentSerializer(serializers.ModelSerializer):
 
     submission_title = serializers.CharField(source="submission.title", read_only=True)
     submission_abstract = serializers.CharField(source="submission.abstract", read_only=True)
+    submission_topic_area = serializers.CharField(source="submission.topic_area.name", read_only=True)
+    reviewer_email = serializers.SerializerMethodField()
     submission_version = SubmissionVersionMinimalSerializer(read_only=True)
     manuscript_url = serializers.SerializerMethodField()
     review = serializers.SerializerMethodField()
@@ -31,7 +33,9 @@ class ReviewAssignmentSerializer(serializers.ModelSerializer):
             "submission",
             "submission_title",
             "submission_abstract",
+            "submission_topic_area",
             "submission_version",
+            "reviewer_email",
             "manuscript_url",
             "status",
             "due_date",
@@ -50,6 +54,10 @@ class ReviewAssignmentSerializer(serializers.ModelSerializer):
                 return request.build_absolute_uri(version.manuscript_pdf.url)
             return version.manuscript_pdf.url
         return None
+
+    def get_reviewer_email(self, obj):
+        """Reviewer email fallback for invite views."""
+        return obj.reviewer.email if obj.reviewer else obj.invited_email
 
     def get_review(self, obj):
         """Return review payload if submitted, else None."""
