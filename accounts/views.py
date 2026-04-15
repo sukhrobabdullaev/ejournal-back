@@ -9,7 +9,7 @@ from rest_framework.views import APIView
 from .models import User
 from .serializers import SignupSerializer, UserSerializer
 from .tokens import generate_email_verification_token, verify_email_verification_token
-from notifications.services import queue_email_verification
+from notifications.services import queue_email_verification, queue_profile_updated
 
 
 class SignupView(generics.CreateAPIView):
@@ -50,6 +50,29 @@ class MeView(generics.RetrieveUpdateAPIView):
 
     def get_object(self):
         return self.request.user
+
+    def perform_update(self, serializer):
+        user = self.request.user
+        tracked_fields = ["full_name", "affiliation", "country", "orcid_id", "google_scholar_url"]
+        before = {field: getattr(user, field, "") for field in tracked_fields}
+
+        serializer.save()
+
+        changed_fields = []
+        for field in tracked_fields:
+            old_value = (before.get(field) or "").strip() if isinstance(before.get(field), str) else before.get(field)
+            new_raw = getattr(user, field, "")
+            new_value = (new_raw or "").strip() if isinstance(new_raw, str) else new_raw
+            if old_value != new_value:
+                changed_fields.append(field)
+
+        if changed_fields:
+            queue_profile_updated(
+                user_id=user.id,
+                to_email=user.email,
+                roles=user.roles or [],
+                changed_fields=changed_fields,
+            )
 
 
 class VerifyEmailView(APIView):

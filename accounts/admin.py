@@ -17,7 +17,7 @@ class UserAdmin(BaseUserAdmin):
 
     fieldsets = (
         (None, {"fields": ("email", "password")}),
-        ("Profile", {"fields": ("full_name", "affiliation", "country", "orcid_id", "is_email_verified")}),
+        ("Profile", {"fields": ("full_name", "affiliation", "country", "orcid_id", "google_scholar_url", "is_email_verified")}),
         ("Roles", {"fields": ("roles", "reviewer_status", "editor_status", "why_to_be")}),
         ("Permissions", {"fields": ("is_active", "is_staff", "is_superuser")}),
         ("Dates", {"fields": ("last_login", "date_joined")}),

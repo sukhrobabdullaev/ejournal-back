@@ -28,6 +28,7 @@ class User(AbstractBaseUser, PermissionsMixin):
     affiliation = models.CharField(max_length=255, blank=True)
     country = models.CharField(max_length=100, blank=True)
     orcid_id = models.CharField(max_length=50, blank=True)
+    google_scholar_url = models.URLField(max_length=500, blank=True)
     is_email_verified = models.BooleanField(default=False)
 
     roles = models.JSONField(default=list)  # ["author", "reviewer", "editor"]

@@ -15,6 +15,36 @@ def build_frontend_journal_certificate_url(code) -> str:
     return f"{base}/journal-certificate/{code}"
 
 
+def build_frontend_dashboard_url() -> str:
+    """Build frontend dashboard URL used in notification emails."""
+    base = getattr(settings, "FRONTEND_URL", "http://localhost:3000").rstrip("/")
+    return f"{base}/dashboard"
+
+
+def build_frontend_editor_dashboard_url() -> str:
+    """Build frontend editor dashboard URL used in notification emails."""
+    base = getattr(settings, "FRONTEND_URL", "http://localhost:3000").rstrip("/")
+    return f"{base}/editor"
+
+
+def build_frontend_submission_url(submission_id) -> str:
+    """Build frontend submission detail URL for authors."""
+    base = getattr(settings, "FRONTEND_URL", "http://localhost:3000").rstrip("/")
+    return f"{base}/submission/{submission_id}"
+
+
+def build_frontend_editor_submission_url(submission_id) -> str:
+    """Build frontend editor submission detail URL."""
+    base = getattr(settings, "FRONTEND_URL", "http://localhost:3000").rstrip("/")
+    return f"{base}/editor/submissions/{submission_id}"
+
+
+def build_frontend_review_invite_url(token) -> str:
+    """Build frontend reviewer invitation URL."""
+    base = getattr(settings, "FRONTEND_URL", "http://localhost:3000").rstrip("/")
+    return f"{base}/review/invite/{token}"
+
+
 def build_certificate_public_api_path(code) -> str:
     return reverse("certificate-public-detail", kwargs={"code": str(code)})
 

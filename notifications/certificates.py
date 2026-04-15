@@ -113,7 +113,18 @@ def build_reviewer_recognition_pdf(
     author_full_name = (author_full_name or "Author").strip()
     reviewer_full_name = (reviewer_full_name or "Reviewer").strip()
     issued_at = issued_at or timezone.now()
-    issued_label = issued_at.strftime("%d %B %Y")
+    issued_label = issued_at.strftime("%B %Y")
+
+    journal_name = getattr(settings, "JOURNAL_NAME", "DCIJ")
+    certificate_org = getattr(
+        settings,
+        "CERTIFICATE_ORGANIZATION_NAME",
+        "Digital Innovation and Emerging Technologies (DCIJ)",
+    )
+    chief_editor_name = getattr(settings, "CERTIFICATE_CHIEF_EDITOR_NAME", "Dr. Ibrohimbek Yusupov")
+    contact_email = getattr(settings, "CERTIFICATE_CONTACT_EMAIL", "infodcij@gmail.com")
+    contact_url = getattr(settings, "CERTIFICATE_CONTACT_URL", "https://www.dcij.info")
+    contact_phone = getattr(settings, "CERTIFICATE_CONTACT_PHONE", "+998983146376")
 
     buffer = BytesIO()
     pdf = canvas.Canvas(buffer, pagesize=landscape(A4))
@@ -123,7 +134,7 @@ def build_reviewer_recognition_pdf(
     pdf.setFillColor(colors.HexColor("#FFFFFF"))
     pdf.rect(0, 0, width, height, fill=1, stroke=0)
 
-    # Decorative frame close to provided design
+    # Decorative frame close to the requested certificate style.
     outer_x = 10 * mm
     outer_y = 9 * mm
     outer_w = width - (20 * mm)
@@ -135,7 +146,7 @@ def build_reviewer_recognition_pdf(
     pdf.setLineWidth(0.8)
     pdf.rect(outer_x + 4 * mm, outer_y + 4 * mm, outer_w - 8 * mm, outer_h - 8 * mm, stroke=1, fill=0)
 
-    # Header logo block (vector placeholder style)
+    # Header logo block
     center_x = width / 2
     pdf.setFillColor(colors.HexColor("#0E6B94"))
     logo_x = center_x - 40 * mm
@@ -149,7 +160,7 @@ def build_reviewer_recognition_pdf(
 
     pdf.setFillColor(colors.HexColor("#1A4D77"))
     pdf.setFont("Helvetica-Bold", 15)
-    pdf.drawString(logo_x + 20.5 * mm, logo_y + 11 * mm, "DCIJ")
+    pdf.drawString(logo_x + 20.5 * mm, logo_y + 11 * mm, journal_name.split()[0][:8].upper())
     pdf.drawString(logo_x + 20.5 * mm, logo_y + 3 * mm, "INFO")
 
     # Title
@@ -168,7 +179,7 @@ def build_reviewer_recognition_pdf(
 
     pdf.setFillColor(colors.HexColor("#2B2B5A"))
     pdf.setFont("Helvetica-Bold", 14)
-    pdf.drawCentredString(center_x, height - 107 * mm, "has received a positive review recommendation for:")
+    pdf.drawCentredString(center_x, height - 107 * mm, "has completed the following article review:")
 
     pdf.setFillColor(colors.black)
     article_bottom = _draw_center_wrapped_text(
@@ -184,7 +195,7 @@ def build_reviewer_recognition_pdf(
 
     pdf.setFont("Helvetica", 12)
     pdf.setFillColor(colors.HexColor("#3D3D3D"))
-    pdf.drawCentredString(center_x, article_bottom - 1.5 * mm, f"Issued on: {issued_label}")
+    pdf.drawCentredString(center_x, article_bottom - 1.5 * mm, f"({issued_label})")
 
     pdf.setFillColor(colors.black)
     pdf.setFont("Helvetica-Bold", 13)
@@ -194,26 +205,18 @@ def build_reviewer_recognition_pdf(
     pdf.drawCentredString(
         center_x,
         article_bottom - 22 * mm,
-        "Awarded by: Digital Innovation and Emerging Technologies (DCIJ)",
+        f"Awarded by: {certificate_org}",
     )
 
     comments_x = 32 * mm
     comments_width = width - 64 * mm
     comments_start_y = article_bottom - 31 * mm
-    comment_cursor = _draw_labeled_comment_block(
+    _draw_labeled_comment_block(
         pdf,
         label="Reviewer comments:",
         text=reviewer_comment,
         x=comments_x,
         start_y=comments_start_y,
-        max_width=comments_width,
-    )
-    _draw_labeled_comment_block(
-        pdf,
-        label="Editor comment:",
-        text=editor_comment,
-        x=comments_x,
-        start_y=comment_cursor,
         max_width=comments_width,
     )
 
@@ -235,7 +238,7 @@ def build_reviewer_recognition_pdf(
     pdf.setLineWidth(1.1)
     pdf.line(line_x1, line_y, line_x2, line_y)
     pdf.setFont("Times-Roman", 10)
-    pdf.drawString(line_x1 + 10 * mm, bottom_y + 6 * mm, "Dr. Ibrohimbek Yusupov")
+    pdf.drawString(line_x1 + 6 * mm, bottom_y + 6 * mm, chief_editor_name)
 
     # Faux signature stroke
     pdf.setStrokeColor(colors.HexColor("#222222"))
@@ -246,7 +249,7 @@ def build_reviewer_recognition_pdf(
     # Footer contact
     pdf.setFillColor(colors.HexColor("#1F2937"))
     pdf.setFont("Helvetica", 9)
-    pdf.drawString(18 * mm, 14 * mm, "info@dcij.info    |    https://www.dcij.info    |    +998 90 123 45 67")
+    pdf.drawString(18 * mm, 14 * mm, f"{contact_email}    |    {contact_url}    |    {contact_phone}")
 
     pdf.showPage()
     pdf.save()

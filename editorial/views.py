@@ -12,6 +12,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
 from PyPDF2 import PdfMerger
+from PyPDF2.errors import PdfReadError
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
@@ -61,13 +62,24 @@ def get_first_submission_page_size(submissions: list[Submission]) -> tuple[float
         from PyPDF2 import PdfReader
 
         manuscript.open("rb")
-        reader = PdfReader(manuscript)
+        pdf_bytes = manuscript.read()
+        reader = PdfReader(BytesIO(pdf_bytes))
         if not reader.pages:
             return A4
         first_page = reader.pages[0]
         width = float(first_page.mediabox.width)
         height = float(first_page.mediabox.height)
         return (width, height)
+    except PdfReadError as exc:
+        logger.exception("Invalid first manuscript PDF for issue cover sizing.")
+        raise ValidationError(
+            {
+                "detail": (
+                    f"Submission #{submissions[0].id} has an invalid manuscript PDF. "
+                    "Please re-upload a valid PDF file before making the journal issue."
+                )
+            }
+        ) from exc
     except Exception:
         logger.exception("Failed to detect first manuscript page size; fallback to A4.")
         return A4
@@ -125,8 +137,38 @@ def merge_submission_pdfs(submissions: list[Submission]) -> bytes:
                     {"detail": f"Submission #{submission.id} has no manuscript PDF."}
                 )
             manuscript.open("rb")
+            pdf_bytes = manuscript.read()
             opened_files.append(manuscript)
-            merger.append(manuscript)
+            if not pdf_bytes:
+                raise ValidationError(
+                    {"detail": f"Submission #{submission.id} has an empty manuscript PDF."}
+                )
+
+            try:
+                from PyPDF2 import PdfReader
+
+                PdfReader(BytesIO(pdf_bytes))
+            except PdfReadError as exc:
+                raise ValidationError(
+                    {
+                        "detail": (
+                            f"Submission #{submission.id} ('{submission.title or 'Untitled'}') has an invalid manuscript PDF. "
+                            "Please re-upload a valid PDF file."
+                        )
+                    }
+                ) from exc
+
+            try:
+                merger.append(BytesIO(pdf_bytes))
+            except PdfReadError as exc:
+                raise ValidationError(
+                    {
+                        "detail": (
+                            f"Submission #{submission.id} ('{submission.title or 'Untitled'}') could not be merged because its PDF is corrupted or incomplete (EOF marker missing). "
+                            "Please re-upload a valid PDF file."
+                        )
+                    }
+                ) from exc
 
         output = BytesIO()
         merger.write(output)
@@ -154,9 +196,20 @@ def get_submission_pdf_page_count(submission: Submission) -> int:
         from PyPDF2 import PdfReader
 
         manuscript.open("rb")
-        reader = PdfReader(manuscript)
+        pdf_bytes = manuscript.read()
+        reader = PdfReader(BytesIO(pdf_bytes))
         page_count = len(reader.pages)
         return page_count if page_count > 0 else 1
+    except PdfReadError as exc:
+        logger.exception("Invalid manuscript PDF for submission_id=%s", submission.id)
+        raise ValidationError(
+            {
+                "detail": (
+                    f"Submission #{submission.id} ('{submission.title or 'Untitled'}') contains an invalid PDF. "
+                    "Please replace the manuscript file and try again."
+                )
+            }
+        ) from exc
     except Exception as exc:
         logger.exception("Failed to read manuscript pages for submission_id=%s", submission.id)
         raise ValidationError(
@@ -352,7 +405,12 @@ class EditorialSubmissionViewSet(viewsets.ReadOnlyModelViewSet):
         log(actor_user=request.user, action_type="reviewer_invited", target_type="review_assignment", target_id=assignment.id, new_value={"submission_id": submission.id, "invited_email": invited_email})
 
         from notifications.services import queue_reviewer_invited
-        queue_reviewer_invited(assignment.id, invited_email, submission.title or "Untitled")
+        queue_reviewer_invited(
+            assignment.id,
+            invited_email,
+            submission.title or "Untitled",
+            assignment.token,
+        )
 
         return Response(
             {

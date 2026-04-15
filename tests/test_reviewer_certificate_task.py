@@ -85,9 +85,7 @@ class ReviewerCertificateTaskTest(TestCase):
         self.assertEqual(len(mail.outbox), 1)
         email = mail.outbox[0]
         self.assertEqual(email.to, [self.author.email])
-        self.assertEqual(email.subject, "Reviewer recognize your article")
-        self.assertIn("Reviewer comments:", email.body)
-        self.assertIn("Editor comment:", email.body)
+        self.assertEqual(email.subject, "Reviewer Recognition Certificate")
         self.assertEqual(len(email.attachments), 1)
         filename, content, mimetype = email.attachments[0]
         self.assertTrue(filename.endswith(".pdf"))

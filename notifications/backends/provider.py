@@ -1,4 +1,7 @@
 """Provider email backend (SES, SendGrid, Mailgun, Postmark, Brevo)."""
+import base64
+from email.utils import parseaddr
+
 import requests
 from django.conf import settings
 
@@ -28,8 +31,10 @@ class ProviderBackend(EmailBackend):
         if not api_key:
             raise RuntimeError("BREVO_API_KEY not configured")
 
-        from_email = kwargs.get("from_email") or get_sender_email()
-        from_name = kwargs.get("from_name") or get_sender_name()
+        raw_from_email = kwargs.get("from_email") or get_sender_email()
+        parsed_name, parsed_email = parseaddr(raw_from_email)
+        from_email = parsed_email or raw_from_email
+        from_name = kwargs.get("from_name") or parsed_name or get_sender_name()
 
         url = "https://api.brevo.com/v3/smtp/email"
         headers = {
@@ -48,6 +53,27 @@ class ProviderBackend(EmailBackend):
         html_message = kwargs.get("html_message")
         if html_message:
             payload["htmlContent"] = html_message
+
+        attachments = kwargs.get("attachments") or []
+        if attachments:
+            payload["attachment"] = []
+            for item in attachments:
+                filename = item.get("filename")
+                content = item.get("content")
+                if not filename or content is None:
+                    continue
+
+                if isinstance(content, str):
+                    content_bytes = content.encode("utf-8")
+                else:
+                    content_bytes = content
+
+                payload["attachment"].append(
+                    {
+                        "name": filename,
+                        "content": base64.b64encode(content_bytes).decode("ascii"),
+                    }
+                )
 
         try:
             response = requests.post(url, json=payload, headers=headers, timeout=10)

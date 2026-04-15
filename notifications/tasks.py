@@ -1,10 +1,15 @@
 """Celery tasks for email notifications."""
+import logging
+
 from celery import shared_task
 from django.conf import settings
-from django.core.mail import EmailMessage
 from django.utils import timezone
 
-from .certificate_utils import build_frontend_certificate_url
+from .certificate_utils import (
+    build_frontend_certificate_url,
+    build_frontend_journal_certificate_url,
+    build_frontend_review_invite_url,
+)
 from .certificates import (
     build_journal_publication_certificate_pdf,
     build_reviewer_recognition_pdf,
@@ -20,10 +25,23 @@ from .models import (
 )
 
 
+logger = logging.getLogger(__name__)
+
+
 def get_email_backend():
     """Return configured email backend."""
     use_provider = getattr(settings, "EMAIL_USE_PROVIDER", False)
-    if use_provider:
+    django_backend = getattr(settings, "EMAIL_BACKEND", "")
+
+    # In tests/local debugging, locmem/console/file/dummy backends should bypass providers.
+    provider_blocked_backends = {
+        "django.core.mail.backends.locmem.EmailBackend",
+        "django.core.mail.backends.console.EmailBackend",
+        "django.core.mail.backends.filebased.EmailBackend",
+        "django.core.mail.backends.dummy.EmailBackend",
+    }
+
+    if use_provider and django_backend not in provider_blocked_backends:
         from .backends.provider import ProviderBackend
         return ProviderBackend()
     from .backends.smtp import SMTPBackend
@@ -82,8 +100,30 @@ def send_notification_email(
     )
 
     try:
-        from .email_html import wrap_email_html
-        html_message = wrap_email_html(subject, body)
+        html_message = None
+        try:
+            from .email_html import render_account_notification_html, wrap_email_html
+            if event_type in {"email_verification", "profile_updated"}:
+                html_message = render_account_notification_html(
+                    subject=subject,
+                    intro=body.splitlines()[2] if len(body.splitlines()) > 2 else body,
+                    recipient_roles=payload.get("roles") if isinstance(payload, dict) else None,
+                    changed_fields=payload.get("changed_fields") if isinstance(payload, dict) else None,
+                    cta_label=("Verify email" if event_type == "email_verification" else "Open dashboard"),
+                    cta_url=(
+                        payload.get("verification_url")
+                        if event_type == "email_verification"
+                        else payload.get("dashboard_url")
+                    )
+                    if isinstance(payload, dict)
+                    else None,
+                )
+            else:
+                html_message = wrap_email_html(subject, body)
+        except Exception:
+            # Keep sending plain text even if HTML template code has issues.
+            logger.exception("Failed to render HTML email; sending plain text")
+
         backend = get_email_backend()
         provider_msg_id = backend.send(to_email, subject, body, html_message=html_message)
         email_log.status = STATUS_SENT
@@ -124,11 +164,12 @@ def send_review_reminder(self, assignment_id: int):
 
     submission = assignment.submission
     subject = f"Reminder: Review due for submission - {submission.title[:50]}"
+    invite_url = build_frontend_review_invite_url(assignment.token)
     body = f"""You have a pending review for the submission "{submission.title}".
 
 Please submit your review by {assignment.due_date or 'the given deadline'}.
 
-Login to the journal system to access your assignments.
+Open the invitation here: {invite_url}
 """
 
     return send_notification_email(
@@ -173,14 +214,21 @@ def send_author_reviewer_recognition_certificate(self, review_id: int):
     if not to_email:
         return {"status": "skipped", "reason": "author_email_missing"}
 
-    author_name = getattr(author, "full_name", "") or "Author"
-    reviewer_name = getattr(reviewer, "full_name", "") or getattr(reviewer, "email", "") or "Reviewer"
-    reviewer_comment_parts = [
-        f"Summary: {review.summary}" if review.summary else "",
-        f"Strengths: {review.strengths}" if review.strengths else "",
-        f"Weaknesses: {review.weaknesses}" if review.weaknesses else "",
-    ]
-    reviewer_comment = "\n".join([part for part in reviewer_comment_parts if part]).strip()
+    author_name = (getattr(author, "full_name", "") or "").strip() or "Author"
+    reviewer_name = (
+        (getattr(reviewer, "full_name", "") or "").strip()
+        or (getattr(reviewer, "email", "") or "").strip()
+        or "Reviewer"
+    )
+
+    reviewer_comment_parts = []
+    if review.summary:
+        reviewer_comment_parts.append(f"Summary: {review.summary}")
+    if review.strengths:
+        reviewer_comment_parts.append(f"Strengths: {review.strengths}")
+    if review.weaknesses:
+        reviewer_comment_parts.append(f"Weaknesses: {review.weaknesses}")
+    reviewer_comment = "\n".join(reviewer_comment_parts).strip()
     editor_comment = (submission.decision_letter or "").strip()
 
     certificate, _ = ReviewerRecognitionCertificate.objects.get_or_create(
@@ -194,7 +242,8 @@ def send_author_reviewer_recognition_certificate(self, review_id: int):
             "reviewer_full_name": reviewer_name,
         },
     )
-    # Keep display fields in sync if user/submission names changed.
+
+    # Keep certificate metadata synchronized with latest names/titles.
     updated = False
     if certificate.article_title != (submission.title or "Untitled article"):
         certificate.article_title = submission.title or "Untitled article"
@@ -228,17 +277,14 @@ def send_author_reviewer_recognition_certificate(self, review_id: int):
         editor_comment=editor_comment,
     )
 
-    subject = "Reviewer recognize your article"
+    subject = "Reviewer Recognition Certificate"
     body = (
         f"Dear {author_name},\n\n"
-        "Congratulations. Your manuscript has received an 'accept' recommendation from the reviewer.\n"
+        "Your submission received a positive reviewer recommendation.\n"
         f"Article: {certificate.article_title}\n"
         f"Reviewer: {reviewer_name}\n"
-        f"Issued date: {certificate.issued_at:%d %B %Y}\n"
         f"Certificate page: {certificate_page_url}\n\n"
-        f"Reviewer comments:\n{reviewer_comment or 'Not provided.'}\n\n"
-        f"Editor comment:\n{editor_comment or 'Not provided.'}\n\n"
-        "Please find the recognition certificate attached as a PDF.\n\n"
+        "Please find the reviewer recognition certificate attached as PDF.\n\n"
         "Best regards,\n"
         "Ditech Asia Editorial Team"
     )
@@ -252,14 +298,28 @@ def send_author_reviewer_recognition_certificate(self, review_id: int):
     )
 
     try:
-        email = EmailMessage(
+        html_message = None
+        try:
+            from .email_html import wrap_email_html
+            html_message = wrap_email_html(subject, body)
+        except Exception:
+            logger.exception("Failed to render HTML email for reviewer certificate")
+
+        backend = get_email_backend()
+        provider_msg_id = backend.send(
+            to_email=to_email,
             subject=subject,
             body=body,
             from_email=get_sender_header(),
-            to=[to_email],
+            html_message=html_message,
+            attachments=[
+                {
+                    "filename": filename,
+                    "content": certificate_pdf,
+                    "mimetype": "application/pdf",
+                }
+            ],
         )
-        email.attach(filename, certificate_pdf, "application/pdf")
-        email.send(fail_silently=False)
     except Exception as exc:
         email_log.status = STATUS_FAILED
         email_log.error = str(exc)
@@ -267,7 +327,11 @@ def send_author_reviewer_recognition_certificate(self, review_id: int):
         raise
 
     email_log.status = STATUS_SENT
-    email_log.save(update_fields=["status"])
+    if provider_msg_id:
+        email_log.provider_message_id = provider_msg_id
+        email_log.save(update_fields=["status", "provider_message_id"])
+    else:
+        email_log.save(update_fields=["status"])
     return {
         "status": "sent",
         "to_email": to_email,
@@ -396,7 +460,17 @@ def send_issue_author_journal_certificate_emails(self, issue_id: int):
             if issue.publication_date
             else str(issue.publication_year)
         )
+        author_scholar_url = (getattr(author, "google_scholar_url", "") or "").strip()
+
         subject = f"Journal Certificate - Volume {issue.volume}, Issue {issue.issue_number}"
+        certificate_url = build_frontend_journal_certificate_url(certificate.verification_code)
+        
+        # Plain text fallback body for email log
+        scholar_line = (
+            f"Google Scholar profile: {author_scholar_url}"
+            if author_scholar_url
+            else "Add your Google Scholar profile: https://scholar.google.com/citations"
+        )
         body = (
             f"Dear {certificate.author_full_name},\n\n"
             "Your article has been included in a published journal issue.\n\n"
@@ -404,6 +478,8 @@ def send_issue_author_journal_certificate_emails(self, issue_id: int):
             f"Issue: Volume {issue.volume}, Issue {issue.issue_number}\n"
             f"Publication date: {publication_label}\n"
             f"Article: {certificate.article_title}\n\n"
+            f"Certificate page: {certificate_url}\n\n"
+            f"{scholar_line}\n\n"
             "Please find your Journal Certificate attached as PDF.\n\n"
             "Best regards,\n"
             "Ditech Asia Editorial Team"
@@ -418,18 +494,44 @@ def send_issue_author_journal_certificate_emails(self, issue_id: int):
         )
 
         try:
-            email = EmailMessage(
+            from .email_html import build_journal_certificate_email_html
+
+            # Build HTML email with explicit links
+            html_message = build_journal_certificate_email_html(
+                subject=subject,
+                author_name=certificate.author_full_name,
+                journal_name=getattr(settings, "JOURNAL_NAME", "Ditech Asia"),
+                volume=issue.volume,
+                issue_number=issue.issue_number,
+                publication_date=publication_label,
+                article_title=certificate.article_title,
+                certificate_url=certificate_url,
+                google_scholar_url=author_scholar_url,
+            )
+
+            backend = get_email_backend()
+            provider_msg_id = backend.send(
+                to_email=to_email,
                 subject=subject,
                 body=body,
                 from_email=get_sender_header(),
-                to=[to_email],
+                html_message=html_message,
+                attachments=[
+                    {
+                        "filename": filename,
+                        "content": pdf_bytes,
+                        "mimetype": "application/pdf",
+                    }
+                ],
             )
-            email.attach(filename, pdf_bytes, "application/pdf")
-            email.send(fail_silently=False)
             certificate.email_sent_at = timezone.now()
             certificate.save(update_fields=["email_sent_at"])
             email_log.status = STATUS_SENT
-            email_log.save(update_fields=["status"])
+            if provider_msg_id:
+                email_log.provider_message_id = provider_msg_id
+                email_log.save(update_fields=["status", "provider_message_id"])
+            else:
+                email_log.save(update_fields=["status"])
             sent += 1
             results.append(
                 {

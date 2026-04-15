@@ -1,4 +1,7 @@
 """Account serializers."""
+import re
+from urllib.parse import urlparse
+
 from rest_framework import serializers
 
 from .models import (
@@ -74,6 +77,44 @@ class SignupSerializer(serializers.Serializer):
 class UserSerializer(serializers.ModelSerializer):
     """Serializer for user profile (GET/PATCH /api/me)."""
 
+    ORCID_PATTERN = re.compile(r"^\d{4}-\d{4}-\d{4}-\d{3}[\dX]$", re.IGNORECASE)
+
+    def validate_google_scholar_url(self, value):
+        """Accept only full Google Scholar profile/citation URLs."""
+        value = (value or "").strip()
+        if not value:
+            return ""
+
+        parsed = urlparse(value)
+        host = (parsed.netloc or "").lower()
+        path = (parsed.path or "").lower()
+
+        if parsed.scheme not in {"http", "https"}:
+            raise serializers.ValidationError("Google Scholar URL must start with http:// or https://")
+        if "scholar.google." not in host:
+            raise serializers.ValidationError("Use a valid Google Scholar URL.")
+        if "/citations" not in path:
+            raise serializers.ValidationError("Use your profile citation URL (contains /citations).")
+
+        return value
+
+    def validate_orcid_id(self, value):
+        """Normalize ORCID format and reject invalid identifiers."""
+        value = (value or "").strip()
+        if not value:
+            return ""
+
+        cleaned = re.sub(r"[^0-9Xx]", "", value).upper()
+        if len(cleaned) == 16:
+            value = f"{cleaned[:4]}-{cleaned[4:8]}-{cleaned[8:12]}-{cleaned[12:]}"
+
+        if not self.ORCID_PATTERN.match(value):
+            raise serializers.ValidationError(
+                "Invalid ORCID format. Use 0000-0000-0000-0000."
+            )
+
+        return value
+
     class Meta:
         model = User
         fields = [
@@ -83,6 +124,7 @@ class UserSerializer(serializers.ModelSerializer):
             "affiliation",
             "country",
             "orcid_id",
+            "google_scholar_url",
             "is_email_verified",
             "roles",
             "reviewer_status",
