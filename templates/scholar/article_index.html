@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Scholar Article Index | {{ journal_title }}</title>
+    <meta name="robots" content="index,follow" />
+  </head>
+  <body>
+    <main style="max-width: 860px; margin: 0 auto; padding: 24px; font-family: Georgia, serif; line-height: 1.6;">
+      <h1 style="margin: 0 0 12px; color: #0f172a;">{{ journal_title }} - Scholar Article Index</h1>
+      <p style="margin-bottom: 24px; color: #334155;">
+        This page lists publicly available article landing pages with machine-readable metadata.
+      </p>
+
+      <ul>
+        {% for article in articles %}
+        <li style="margin-bottom: 14px;">
+          <a href="{{ article.landing_url }}">{{ article.title }}</a>
+          {% if article.author_name %}
+          <span> - {{ article.author_name }}</span>
+          {% endif %}
+          {% if article.published_date %}
+          <span> ({{ article.published_date }})</span>
+          {% endif %}
+          {% if article.pdf_url %}
+          <span> - <a href="{{ article.pdf_url }}" rel="noopener noreferrer" target="_blank">PDF</a></span>
+          {% endif %}
+        </li>
+        {% empty %}
+        <li>No published articles available yet.</li>
+        {% endfor %}
+      </ul>
+    </main>
+  </body>
+</html>

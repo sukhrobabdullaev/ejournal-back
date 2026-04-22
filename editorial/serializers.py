@@ -27,18 +27,28 @@ class EditorialSubmissionSerializer(serializers.ModelSerializer):
     supplementary_files = SubmissionSupplementaryFileSerializer(many=True, read_only=True)
     review_assignments = serializers.SerializerMethodField()
     reason = serializers.SerializerMethodField()
+    author_orcid_id = serializers.SerializerMethodField()
+    author_google_scholar_url = serializers.SerializerMethodField()
+    author_has_orcid = serializers.SerializerMethodField()
+    author_has_google_scholar = serializers.SerializerMethodField()
 
     class Meta:
         model = Submission
         fields = [
             "id",
             "status",
+            "doi",
+            "doi_status",
             "reason",
             "title",
             "abstract",
             "keywords",
             "topic_area",
             "author",
+            "author_orcid_id",
+            "author_google_scholar_url",
+            "author_has_orcid",
+            "author_has_google_scholar",
             "desk_reject_reason",
             "editorial_decision",
             "decision_letter",
@@ -85,6 +95,18 @@ class EditorialSubmissionSerializer(serializers.ModelSerializer):
         if obj.status == STATUS_REJECTED:
             return obj.decision_letter or ""
         return ""
+
+    def get_author_orcid_id(self, obj):
+        return (obj.author.orcid_id or "").strip()
+
+    def get_author_google_scholar_url(self, obj):
+        return (obj.author.google_scholar_url or "").strip()
+
+    def get_author_has_orcid(self, obj):
+        return bool((obj.author.orcid_id or "").strip())
+
+    def get_author_has_google_scholar(self, obj):
+        return bool((obj.author.google_scholar_url or "").strip())
 
 
 class DeskRejectSerializer(serializers.Serializer):
@@ -262,6 +284,7 @@ class JournalIssueArticleSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "title",
+            "doi",
             "author_name",
             "issue_order",
             "page_start",

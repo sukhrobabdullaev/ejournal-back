@@ -45,6 +45,17 @@ STATUS_CHOICES = [
 
 FINAL_STATUSES = [STATUS_DESK_REJECTED, STATUS_REJECTED, STATUS_PUBLISHED, STATUS_WITHDRAWN]
 
+# DOI registration status constants
+DOI_STATUS_PENDING = "pending"
+DOI_STATUS_REGISTERED = "registered"
+DOI_STATUS_FAILED = "failed"
+
+DOI_STATUS_CHOICES = [
+    (DOI_STATUS_PENDING, "Pending"),
+    (DOI_STATUS_REGISTERED, "Registered"),
+    (DOI_STATUS_FAILED, "Failed"),
+]
+
 
 def manuscript_upload_path(instance, filename):
     """Upload path for manuscript PDF."""
@@ -139,6 +150,12 @@ class Submission(models.Model):
     issue_order = models.PositiveIntegerField(null=True, blank=True)
     page_start = models.PositiveIntegerField(null=True, blank=True)
     page_end = models.PositiveIntegerField(null=True, blank=True)
+    doi = models.CharField(max_length=128, unique=True, null=True, blank=True, db_index=True)
+    doi_status = models.CharField(
+        max_length=20,
+        choices=DOI_STATUS_CHOICES,
+        default=DOI_STATUS_PENDING,
+    )
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

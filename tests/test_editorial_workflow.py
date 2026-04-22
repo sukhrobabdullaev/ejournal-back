@@ -8,7 +8,7 @@ from rest_framework.test import APIClient
 
 from accounts.models import APPROVAL_APPROVED, User
 from reviews.models import RECOMMENDATION_ACCEPT, Review, ReviewAssignment, STATUS_ACCEPTED
-from submissions.models import STATUS_DESK_REJECTED, STATUS_SCREENING, STATUS_SUBMITTED, Submission, SubmissionVersion, TopicArea
+from submissions.models import DOI_STATUS_PENDING, STATUS_DESK_REJECTED, STATUS_SCREENING, STATUS_SUBMITTED, Submission, SubmissionVersion, TopicArea
 
 
 def make_user(roles, editor_status=None):
@@ -18,6 +18,7 @@ def make_user(roles, editor_status=None):
         password="testpass123",
         full_name="Editor",
         roles=roles,
+        is_email_verified=True,
     )
     if editor_status:
         user.editor_status = editor_status
@@ -140,3 +141,28 @@ class EditorialWorkflowTest(TestCase):
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         self.submission.refresh_from_db()
         self.assertEqual(self.submission.status, "published")
+        self.assertTrue(self.submission.doi)
+        self.assertEqual(self.submission.doi_status, DOI_STATUS_PENDING)
+
+    def test_generate_doi_action_for_accepted_submission(self):
+        self.submission.status = "accepted"
+        self.submission.save(update_fields=["status"])
+
+        self._login(self.editor)
+        resp = self.client.post(f"/api/editor/submissions/{self.submission.id}/generate-doi/")
+
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertIn("doi", resp.data)
+        self.assertTrue(resp.data["doi"])
+
+        self.submission.refresh_from_db()
+        self.assertEqual(self.submission.doi, resp.data["doi"])
+        self.assertEqual(self.submission.doi_status, DOI_STATUS_PENDING)
+
+    def test_generate_doi_requires_accepted_or_published_status(self):
+        self.submission.status = "screening"
+        self.submission.save(update_fields=["status"])
+
+        self._login(self.editor)
+        resp = self.client.post(f"/api/editor/submissions/{self.submission.id}/generate-doi/")
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)

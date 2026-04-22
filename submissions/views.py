@@ -1,10 +1,15 @@
 """Submission views (author workflow)."""
+from datetime import date, datetime
 import re
 import uuid
 
 from django.core.files.base import ContentFile
 from django.db.models import Max
 from django.db import transaction
+from django.http import HttpResponse
+from django.template.loader import render_to_string
+from django.urls import reverse
+from django.utils import timezone
 from django.utils.text import slugify
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
@@ -20,6 +25,9 @@ from .models import JournalIssue, STATUS_PUBLISHED
 from .serializers import SubmissionSerializer, TopicAreaSerializer
 from .transitions import validate_transition
 from .validation import validate_submission_ready_for_submit
+
+
+JOURNAL_TITLE = "Digital Innovation and Emerging Technologies - Ditech Asia Journal"
 
 
 class SubmissionViewSet(
@@ -227,9 +235,35 @@ def _build_article_slug(submission: Submission) -> str:
     return f"{base}-{submission.id}"
 
 
+def _resolve_publication_date(submission: Submission) -> date:
+    issue = submission.issue
+    if issue and issue.publication_date:
+        return issue.publication_date
+
+    if isinstance(submission.updated_at, datetime):
+        return submission.updated_at.date()
+    return submission.updated_at
+
+
+def _format_citation_date(value: date | datetime | None) -> str | None:
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        value = value.date()
+    return value.strftime("%Y/%m/%d")
+
+
+def _build_scholar_article_url(submission: Submission, request) -> str:
+    slug = _build_article_slug(submission)
+    return request.build_absolute_uri(
+        reverse("scholar-article-landing", kwargs={"slug": slug})
+    )
+
+
 def _public_article_payload(submission: Submission, request) -> dict:
     """Map a published submission into frontend article shape."""
     topic_name = submission.topic_area.name if submission.topic_area else None
+    issue = submission.issue
     manuscript_url = ""
     if submission.manuscript_pdf:
         try:
@@ -243,6 +277,9 @@ def _public_article_payload(submission: Submission, request) -> dict:
         "title": submission.title or "Untitled",
         "abstract": submission.abstract or "",
         "keywords": submission.keywords or [],
+        "journal_title": JOURNAL_TITLE,
+        "volume": issue.volume if issue else None,
+        "issue_number": issue.issue_number if issue else None,
         "topic_tags": [topic_name] if topic_name else [],
         "authors": [
             {
@@ -256,8 +293,9 @@ def _public_article_payload(submission: Submission, request) -> dict:
         "published_at": submission.updated_at,
         "received_at": submission.created_at,
         "accepted_at": None,
-        "doi": None,
+        "doi": submission.doi,
         "pdf_public_url": manuscript_url,
+        "scholar_public_url": _build_scholar_article_url(submission, request),
         "status": submission.status,
         "issue_id": submission.issue_id,
         "issue_order": submission.issue_order,
@@ -282,7 +320,7 @@ class ArticleListView(APIView):
     def get(self, request, *args, **kwargs):
         queryset = (
             Submission.objects.filter(status=STATUS_PUBLISHED)
-            .select_related("author", "topic_area")
+            .select_related("author", "topic_area", "issue")
             .order_by("-updated_at")
         )
         payload = [_public_article_payload(submission, request) for submission in queryset]
@@ -301,7 +339,7 @@ class ArticleDetailView(APIView):
 
         submission = (
             Submission.objects.filter(id=submission_id, status=STATUS_PUBLISHED)
-            .select_related("author", "topic_area")
+            .select_related("author", "topic_area", "issue")
             .first()
         )
         if not submission:
@@ -309,6 +347,152 @@ class ArticleDetailView(APIView):
 
         payload = _public_article_payload(submission, request)
         return Response(payload, status=status.HTTP_200_OK)
+
+
+class ScholarArticleIndexView(APIView):
+    """GET /api/scholar/articles - Google Scholar crawlable list of article landing pages."""
+
+    permission_classes = [AllowAny]
+
+    def get(self, request, *args, **kwargs):
+        queryset = (
+            Submission.objects.filter(status=STATUS_PUBLISHED)
+            .select_related("author", "issue")
+            .order_by("-updated_at")
+        )
+
+        articles = []
+        for submission in queryset:
+            pdf_url = (
+                request.build_absolute_uri(submission.manuscript_pdf.url)
+                if submission.manuscript_pdf
+                else None
+            )
+            articles.append(
+                {
+                    "title": submission.title or "Untitled",
+                    "author_name": submission.author.full_name,
+                    "published_date": _resolve_publication_date(submission),
+                    "landing_url": _build_scholar_article_url(submission, request),
+                    "pdf_url": pdf_url,
+                }
+            )
+
+        html = render_to_string(
+            "scholar/article_index.html",
+            {
+                "journal_title": JOURNAL_TITLE,
+                "articles": articles,
+            },
+        )
+        response = HttpResponse(html, content_type="text/html; charset=utf-8")
+        response["X-Robots-Tag"] = "index, follow"
+        return response
+
+
+class ScholarArticleLandingView(APIView):
+    """GET /api/scholar/articles/{slug} - Google Scholar metadata-rich article landing page."""
+
+    permission_classes = [AllowAny]
+
+    def get(self, request, slug, *args, **kwargs):
+        submission_id = _extract_submission_id_from_slug(slug)
+        if not submission_id:
+            return HttpResponse("Article not found.", status=404)
+
+        submission = (
+            Submission.objects.filter(id=submission_id, status=STATUS_PUBLISHED)
+            .select_related("author", "topic_area", "issue")
+            .first()
+        )
+        if not submission:
+            return HttpResponse("Article not found.", status=404)
+
+        publication_date = _resolve_publication_date(submission)
+        citation_publication_date = _format_citation_date(publication_date)
+        pdf_url = (
+            request.build_absolute_uri(submission.manuscript_pdf.url)
+            if submission.manuscript_pdf
+            else None
+        )
+        doi_url = f"https://doi.org/{submission.doi}" if submission.doi else None
+
+        orcid_id = (submission.author.orcid_id or "").strip()
+        orcid_url = f"https://orcid.org/{orcid_id}" if orcid_id else None
+
+        context = {
+            "journal_title": JOURNAL_TITLE,
+            "article_title": submission.title or "Untitled",
+            "article_abstract": submission.abstract or "",
+            "authors": [
+                {
+                    "full_name": submission.author.full_name,
+                    "affiliation": submission.author.affiliation,
+                    "orcid_url": orcid_url,
+                }
+            ],
+            "keywords": submission.keywords or [],
+            "topic_name": submission.topic_area.name if submission.topic_area else "",
+            "volume": submission.issue.volume if submission.issue else None,
+            "issue_number": submission.issue.issue_number if submission.issue else None,
+            "page_start": submission.page_start,
+            "page_end": submission.page_end,
+            "doi": submission.doi,
+            "doi_url": doi_url,
+            "pdf_url": pdf_url,
+            "citation_publication_date": citation_publication_date,
+            "publication_date": publication_date,
+            "landing_url": _build_scholar_article_url(submission, request),
+        }
+        html = render_to_string("scholar/article_landing.html", context)
+        response = HttpResponse(html, content_type="text/html; charset=utf-8")
+        response["X-Robots-Tag"] = "index, follow"
+        return response
+
+
+class ScholarSitemapView(APIView):
+    """GET /api/scholar/sitemap.xml - XML sitemap for Google Scholar article landing pages."""
+
+    permission_classes = [AllowAny]
+
+    def get(self, request, *args, **kwargs):
+        queryset = (
+            Submission.objects.filter(status=STATUS_PUBLISHED)
+            .only("id", "title", "updated_at")
+            .order_by("-updated_at")
+        )
+
+        urls = [
+            {
+                "loc": request.build_absolute_uri(reverse("scholar-article-index")),
+                "lastmod": timezone.now().date().isoformat(),
+            }
+        ]
+        for submission in queryset:
+            urls.append(
+                {
+                    "loc": _build_scholar_article_url(submission, request),
+                    "lastmod": submission.updated_at.date().isoformat(),
+                }
+            )
+
+        xml = render_to_string("scholar/sitemap.xml", {"urls": urls})
+        return HttpResponse(xml, content_type="application/xml; charset=utf-8")
+
+
+class ScholarRobotsTxtView(APIView):
+    """GET /api/scholar/robots.txt - crawler rules for Scholar sitemap discovery."""
+
+    permission_classes = [AllowAny]
+
+    def get(self, request, *args, **kwargs):
+        lines = [
+            "User-agent: *",
+            "Allow: /",
+            "Disallow: /admin/",
+            f"Sitemap: {request.build_absolute_uri(reverse('scholar-sitemap'))}",
+        ]
+        return HttpResponse("\n".join(lines) + "\n", content_type="text/plain; charset=utf-8")
 
 
 def _issue_pdf_url(issue: JournalIssue, request) -> str | None:
@@ -375,6 +559,7 @@ def _public_issue_payload(issue: JournalIssue, request, include_articles: bool =
             "page_start": article.page_start,
             "page_end": article.page_end,
             "manuscript_page_count": _pdf_page_count(article),
+            "doi": article.doi,
             "pdf_public_url": request.build_absolute_uri(article.manuscript_pdf.url) if article.manuscript_pdf else None,
             "status": article.status,
         }

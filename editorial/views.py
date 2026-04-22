@@ -33,6 +33,7 @@ from submissions.models import (
     Submission,
     SubmissionVersion,
 )
+from submissions.doi import ensure_local_doi
 from submissions.transitions import validate_transition
 
 from .serializers import (
@@ -526,7 +527,8 @@ class EditorialSubmissionViewSet(viewsets.ReadOnlyModelViewSet):
         with transaction.atomic():
             old_status = submission.status
             submission.status = STATUS_PUBLISHED
-            submission.save(update_fields=["status"])
+            ensure_local_doi(submission, save=False)
+            submission.save(update_fields=["status", "doi", "doi_status", "updated_at"])
             from audit.services import log
             log(actor_user=request.user, action_type="publish", target_type="submission", target_id=submission.id, old_value={"status": old_status}, new_value={"status": STATUS_PUBLISHED})
 
@@ -535,6 +537,26 @@ class EditorialSubmissionViewSet(viewsets.ReadOnlyModelViewSet):
 
         serializer = self.get_serializer(submission)
         return Response(serializer.data)
+
+    @action(detail=True, methods=["post"], url_path="generate-doi")
+    def generate_doi(self, request, pk=None):
+        """POST /api/editor/submissions/{id}/generate-doi - Generate local DOI for accepted/published submission."""
+        submission = self.get_object()
+        if submission.status not in (STATUS_ACCEPTED, STATUS_PUBLISHED):
+            return Response(
+                {"detail": "DOI can only be generated for accepted or published submissions."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        doi_value = ensure_local_doi(submission, save=True)
+        return Response(
+            {
+                "id": submission.id,
+                "doi": doi_value,
+                "doi_status": submission.doi_status,
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class EditorialReviewAssignmentViewSet(viewsets.ViewSet):
@@ -725,6 +747,7 @@ class JournalIssueViewSet(viewsets.ModelViewSet):
                 submission.page_start = page_start
                 submission.page_end = page_end
                 submission.status = STATUS_PUBLISHED
+                ensure_local_doi(submission, save=False)
                 submission.save(
                     update_fields=[
                         "issue",
@@ -732,6 +755,8 @@ class JournalIssueViewSet(viewsets.ModelViewSet):
                         "page_start",
                         "page_end",
                         "status",
+                        "doi",
+                        "doi_status",
                         "updated_at",
                     ]
                 )

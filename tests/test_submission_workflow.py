@@ -1,5 +1,6 @@
 """Tests for submission workflow (author)."""
 from django.test import TestCase
+from django.core.files.uploadedfile import SimpleUploadedFile
 from rest_framework import status
 from rest_framework.test import APIClient
 
@@ -14,6 +15,9 @@ def make_author():
         password="testpass123",
         full_name="Author",
         roles=["author"],
+        is_email_verified=True,
+        orcid_id="0000-0002-1234-5678",
+        google_scholar_url="https://scholar.google.com/citations?user=AUTHOR123",
     )
 
 def make_reviewer():
@@ -23,6 +27,7 @@ def make_reviewer():
         password="testpass123",
         full_name="Reviewer Only",
         roles=["reviewer"],
+        is_email_verified=True,
     )
 
 
@@ -85,3 +90,49 @@ class SubmissionWorkflowTest(TestCase):
         self._login(self.reviewer)
         resp = self.client.post("/api/submissions/", {})
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_submit_requires_author_orcid_profile(self):
+        self.author.orcid_id = ""
+        self.author.save(update_fields=["orcid_id"])
+
+        submission = Submission.objects.create(
+            author=self.author,
+            status="submitted",
+            title="Profile check",
+            abstract="Abstract",
+            keywords=["k1", "k2", "k3"],
+            topic_area=self.topic,
+            originality_confirmation=True,
+            plagiarism_agreement=True,
+            ethics_compliance=True,
+            copyright_agreement=True,
+            manuscript_pdf=SimpleUploadedFile("paper.pdf", b"pdf", content_type="application/pdf"),
+        )
+
+        self._login(self.author)
+        resp = self.client.post(f"/api/submissions/{submission.id}/submit/")
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("ORCID", str(resp.data))
+
+    def test_submit_requires_author_google_scholar_profile(self):
+        self.author.google_scholar_url = ""
+        self.author.save(update_fields=["google_scholar_url"])
+
+        submission = Submission.objects.create(
+            author=self.author,
+            status="submitted",
+            title="Scholar check",
+            abstract="Abstract",
+            keywords=["k1", "k2", "k3"],
+            topic_area=self.topic,
+            originality_confirmation=True,
+            plagiarism_agreement=True,
+            ethics_compliance=True,
+            copyright_agreement=True,
+            manuscript_pdf=SimpleUploadedFile("paper.pdf", b"pdf", content_type="application/pdf"),
+        )
+
+        self._login(self.author)
+        resp = self.client.post(f"/api/submissions/{submission.id}/submit/")
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Google Scholar", str(resp.data))

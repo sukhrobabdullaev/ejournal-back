@@ -10,7 +10,7 @@ from rest_framework.test import APIClient
 from PyPDF2 import PdfReader, PdfWriter
 
 from accounts.models import APPROVAL_APPROVED, User
-from submissions.models import JournalIssue, STATUS_ACCEPTED, STATUS_PUBLISHED, Submission, TopicArea
+from submissions.models import DOI_STATUS_PENDING, JournalIssue, STATUS_ACCEPTED, STATUS_PUBLISHED, Submission, TopicArea
 
 
 def make_pdf_file(filename: str, pages: int = 1) -> SimpleUploadedFile:
@@ -29,6 +29,7 @@ def make_user(email: str, roles: list[str], editor_status: str | None = None):
         password="testpass123",
         full_name=email.split("@")[0].title(),
         roles=roles,
+        is_email_verified=True,
     )
     if editor_status:
         user.editor_status = editor_status
@@ -115,11 +116,15 @@ class JournalIssueWorkflowTest(TestCase):
         self.assertEqual(submission_1.issue_order, 1)
         self.assertEqual(submission_1.page_start, 1)
         self.assertEqual(submission_1.page_end, 1)
+        self.assertTrue(submission_1.doi)
+        self.assertEqual(submission_1.doi_status, DOI_STATUS_PENDING)
 
         self.assertEqual(submission_2.status, STATUS_PUBLISHED)
         self.assertEqual(submission_2.issue_id, issue.id)
         self.assertEqual(submission_2.issue_order, 2)
         self.assertEqual((submission_2.page_start, submission_2.page_end), (2, 2))
+        self.assertTrue(submission_2.doi)
+        self.assertEqual(submission_2.doi_status, DOI_STATUS_PENDING)
 
     @patch("notifications.tasks.send_issue_author_journal_certificate_emails.delay")
     def test_make_journal_queues_author_certificate_task(self, mocked_delay):

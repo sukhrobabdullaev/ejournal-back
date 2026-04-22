@@ -82,6 +82,8 @@ class SubmissionSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "status",
+            "doi",
+            "doi_status",
             "reason",
             "title",
             "abstract",
@@ -103,7 +105,16 @@ class SubmissionSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "status", "reason", "supplementary_files", "created_at", "updated_at"]
+        read_only_fields = [
+            "id",
+            "status",
+            "doi",
+            "doi_status",
+            "reason",
+            "supplementary_files",
+            "created_at",
+            "updated_at",
+        ]
 
     def get_manuscript_pdf(self, obj):
         """Return manuscript URL or None (avoids ValueError on empty FileField)."""

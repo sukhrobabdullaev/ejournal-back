@@ -43,7 +43,7 @@ class JournalIssueAdmin(admin.ModelAdmin):
 
 @admin.register(Submission)
 class SubmissionAdmin(admin.ModelAdmin):
-    list_display = ["id", "title", "author", "status", "editorial_decision", "created_at"]
+    list_display = ["id", "title", "author", "status", "doi", "doi_status", "editorial_decision", "created_at"]
     list_filter = ["status", "issue"]
     search_fields = ["title", "author__email"]
     inlines = [SubmissionSupplementaryFileInline, SubmissionVersionInline]
