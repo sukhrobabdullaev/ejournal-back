@@ -21,13 +21,13 @@ class OrcidProfileApiTest(TestCase):
     def test_patch_me_accepts_valid_orcid_and_normalizes(self):
         response = self.client.patch(
             "/api/me",
-            {"orcid_id": "000000021234567X"},
+            {"orcid_id": "0000-0002-1234-5678"},
             format="json",
         )
 
         self.assertEqual(response.status_code, 200)
         self.user.refresh_from_db()
-        self.assertEqual(self.user.orcid_id, "0000-0002-1234-567X")
+        self.assertEqual(self.user.orcid_id, "0000-0002-1234-5678")
 
     def test_patch_me_rejects_invalid_orcid(self):
         response = self.client.patch(

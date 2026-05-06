@@ -7,7 +7,7 @@ from rest_framework import serializers
 from .models import STATUS_REVISION_REQUIRED, STATUS_SUBMITTED
 
 
-ORCID_PATTERN = re.compile(r"^\d{4}-\d{4}-\d{4}-\d{3}[\dX]$", re.IGNORECASE)
+ORCID_PATTERN = re.compile(r"^\d{4}-\d{4}-\d{4}-\d{4}$")
 
 
 def _is_valid_google_scholar_url(url: str) -> bool:
@@ -29,29 +29,14 @@ def _validate_author_profile_requirements(submission):
         return
 
     orcid_id = (author.orcid_id or "").strip()
-    scholar_url = (author.google_scholar_url or "").strip()
-
-    missing_items = []
     if not orcid_id:
-        missing_items.append("ORCID iD")
-    if not scholar_url:
-        missing_items.append("Google Scholar URL")
-
-    if missing_items:
         raise serializers.ValidationError(
-            "Author profile is incomplete. Please add "
-            + " and ".join(missing_items)
-            + " before submitting the manuscript."
+            "Author profile is incomplete. Please add ORCID iD before submitting the manuscript."
         )
 
     if not ORCID_PATTERN.match(orcid_id):
         raise serializers.ValidationError(
             "Author ORCID iD format is invalid. Use 0000-0000-0000-0000."
-        )
-
-    if not _is_valid_google_scholar_url(scholar_url):
-        raise serializers.ValidationError(
-            "Author Google Scholar URL is invalid. Use a /citations profile URL."
         )
 
 

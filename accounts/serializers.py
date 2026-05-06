@@ -77,7 +77,7 @@ class SignupSerializer(serializers.Serializer):
 class UserSerializer(serializers.ModelSerializer):
     """Serializer for user profile (GET/PATCH /api/me)."""
 
-    ORCID_PATTERN = re.compile(r"^\d{4}-\d{4}-\d{4}-\d{3}[\dX]$", re.IGNORECASE)
+    ORCID_PATTERN = re.compile(r"^\d{4}-\d{4}-\d{4}-\d{4}$")
 
     def validate_google_scholar_url(self, value):
         """Accept only full Google Scholar profile/citation URLs."""
@@ -104,7 +104,7 @@ class UserSerializer(serializers.ModelSerializer):
         if not value:
             return ""
 
-        cleaned = re.sub(r"[^0-9Xx]", "", value).upper()
+        cleaned = re.sub(r"[^0-9]", "", value)
         if len(cleaned) == 16:
             value = f"{cleaned[:4]}-{cleaned[4:8]}-{cleaned[8:12]}-{cleaned[12:]}"
 

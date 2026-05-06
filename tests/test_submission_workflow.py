@@ -114,7 +114,7 @@ class SubmissionWorkflowTest(TestCase):
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("ORCID", str(resp.data))
 
-    def test_submit_requires_author_google_scholar_profile(self):
+    def test_submit_allows_missing_author_google_scholar_profile(self):
         self.author.google_scholar_url = ""
         self.author.save(update_fields=["google_scholar_url"])
 
@@ -134,5 +134,4 @@ class SubmissionWorkflowTest(TestCase):
 
         self._login(self.author)
         resp = self.client.post(f"/api/submissions/{submission.id}/submit/")
-        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("Google Scholar", str(resp.data))
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
