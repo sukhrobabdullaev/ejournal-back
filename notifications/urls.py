@@ -10,9 +10,11 @@ from .views import (
     PublicCertificateDetailView,
     PublicCertificatePdfView,
     PublicCertificateQrView,
+    ContactFormView,
 )
 
 urlpatterns = [
+    path("contact/", ContactFormView.as_view(), name="contact-form"),
     path("my/", MyCertificateListView.as_view(), name="certificate-my-list"),
     path("journal/my/", MyJournalCertificateListView.as_view(), name="journal-certificate-my-list"),
     path("public/<uuid:code>/", PublicCertificateDetailView.as_view(), name="certificate-public-detail"),

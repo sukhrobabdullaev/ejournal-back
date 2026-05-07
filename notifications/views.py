@@ -21,6 +21,49 @@ from .serializers import (
     JournalPublicationCertificateSerializer,
     ReviewerRecognitionCertificateSerializer,
 )
+from rest_framework.permissions import AllowAny
+from rest_framework.views import APIView
+from rest_framework.request import Request
+from rest_framework import status
+from .tasks import send_notification_email
+
+
+class ContactFormView(APIView):
+    """Public endpoint to accept contact form submissions and queue an email."""
+
+    permission_classes = [AllowAny]
+
+    def post(self, request: Request, *args, **kwargs):
+        data = request.data or {}
+        name = data.get("name")
+        email = data.get("email")
+        subject = data.get("subject") or "Website contact"
+        message = data.get("message")
+        to_email = data.get("to") or getattr(
+            __import__("django.conf").conf.settings, "CONTACT_TO_EMAIL", None
+        )
+
+        if not (name and email and message):
+            return Response({"detail": "Missing required fields."}, status=status.HTTP_400_BAD_REQUEST)
+
+        body_lines = [f"From: {name} <{email}>", "", f"Subject: {subject}", "", message]
+        body = "\n".join(body_lines)
+
+        # Fallback to DEFAULT_FROM_EMAIL if no recipient configured
+        if not to_email:
+            to_email = getattr(__import__("django.conf").conf.settings, "DEFAULT_FROM_EMAIL", "contact@ditechasia.org")
+
+        # Queue email via existing notification task
+        send_notification_email.delay(
+            event_type="contact_form",
+            user_id=None,
+            to_email=to_email,
+            subject=f"Website contact: {subject}",
+            body=body,
+            payload={"name": name, "email": email, "subject": subject},
+        )
+
+        return Response({"detail": "Message queued"}, status=status.HTTP_202_ACCEPTED)
 
 
 class MyCertificateListView(APIView):
