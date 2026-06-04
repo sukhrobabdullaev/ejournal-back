@@ -67,23 +67,23 @@ services:
       redis:
         condition: service_healthy
 
-  front:
-    image: node:18-bullseye
-    working_dir: /app
-    volumes:
-      - ../ejournal-front:/app
-      - /app/node_modules
-    env_file: ../ejournal-front/.env
-    environment:
-      # Ensure frontend can reach backend service by service name 'web'
-      VITE_CONTACT_ENDPOINT: http://web:8000/api/certificates/contact/
-      VITE_CONTACT_TO_EMAIL: contact@ditechasia.org
-    command: sh -c "npm ci --prefer-offline --no-audit --no-fund && npm run dev -- --host 0.0.0.0"
-    ports:
-      - "3000:3000"
-    depends_on:
-      web:
-        condition: service_healthy
+  # front:
+  #   image: node:18-bullseye
+  #   working_dir: /app
+  #   volumes:
+  #     - ../ejournal-front:/app
+  #     - /app/node_modules
+  #   env_file: ../ejournal-front/.env
+  #   environment:
+  #     # Ensure frontend can reach backend service by service name 'web'
+  #     VITE_CONTACT_ENDPOINT: http://web:8000/api/certificates/contact/
+  #     VITE_CONTACT_TO_EMAIL: contact@ditechasia.org
+  #   command: sh -c "npm ci --prefer-offline --no-audit --no-fund && npm run dev -- --host 0.0.0.0"
+  #   ports:
+  #     - "3000:3000"
+  #   depends_on:
+  #     web:
+  #       condition: service_healthy
 
 volumes:
   postgres_data:
