@@ -39,7 +39,7 @@ services:
       CELERY_BROKER_URL: redis://redis:6379/0
       USE_S3_STORAGE: "false"
     ports:
-      - "8000:8000"
+      - "8001:8000"
     depends_on:
       db:
         condition: service_healthy
