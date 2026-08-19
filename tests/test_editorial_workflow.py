@@ -94,11 +94,12 @@ class EditorialWorkflowTest(TestCase):
         self.submission.save()
         self._login(self.editor)
         with patch("notifications.tasks.send_author_reviewer_recognition_certificate.delay") as mock_delay:
-            resp = self.client.post(
-                f"/api/editor/submissions/{self.submission.id}/decision/",
-                {"decision": "accept", "decision_letter": "We are pleased to accept."},
-                format="json",
-            )
+            with self.captureOnCommitCallbacks(execute=True):
+                resp = self.client.post(
+                    f"/api/editor/submissions/{self.submission.id}/decision/",
+                    {"decision": "accept", "decision_letter": "We are pleased to accept."},
+                    format="json",
+                )
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         self.submission.refresh_from_db()
         self.assertEqual(self.submission.status, "accepted")

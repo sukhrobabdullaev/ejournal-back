@@ -20,7 +20,8 @@ def make_user(roles, reviewer_status=None):
     )
     if reviewer_status:
         user.reviewer_status = reviewer_status
-        user.save(update_fields=["reviewer_status"])
+    user.is_email_verified = True
+    user.save()
     return user
 
 

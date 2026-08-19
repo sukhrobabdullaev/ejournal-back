@@ -1,4 +1,6 @@
 """Notification trigger helpers. Call these from views/signals to queue emails."""
+from django.db import transaction
+
 from .certificate_utils import (
     build_frontend_dashboard_url,
     build_frontend_editor_dashboard_url,
@@ -34,14 +36,14 @@ def queue_email_verification(user_id: int, to_email: str, verification_url: str)
         verification_url,
         "If you did not create this account, you can safely ignore this email.",
     )
-    send_notification_email.delay(
+    transaction.on_commit(lambda: send_notification_email.delay(
         event_type="email_verification",
         user_id=user_id,
         to_email=to_email,
         subject="Verify your email address to activate your account",
         body=body,
         payload={"verification_url": verification_url},
-    )
+    ))
 
 
 def queue_profile_updated(user_id: int, to_email: str, roles: list[str], changed_fields: list[str]):
@@ -59,7 +61,7 @@ def queue_profile_updated(user_id: int, to_email: str, roles: list[str], changed
         "If you did not make this change, please reset your password and contact support.",
     )
 
-    send_notification_email.delay(
+    transaction.on_commit(lambda: send_notification_email.delay(
         event_type="profile_updated",
         user_id=user_id,
         to_email=to_email,
@@ -70,14 +72,14 @@ def queue_profile_updated(user_id: int, to_email: str, roles: list[str], changed
             "changed_fields": changed_fields,
             "dashboard_url": dashboard_url,
         },
-    )
+    ))
 
 
 def queue_submission_submitted(submission_id: int, author_email: str, author_id: int):
     """Queue email when submission is submitted."""
     submission_url = build_frontend_submission_url(submission_id)
     dashboard_url = build_frontend_dashboard_url()
-    send_notification_email.delay(
+    transaction.on_commit(lambda: send_notification_email.delay(
         event_type="submission_submitted",
         user_id=author_id,
         to_email=author_email,
@@ -94,7 +96,7 @@ def queue_submission_submitted(submission_id: int, author_email: str, author_id:
             f"Dashboard: {dashboard_url}",
         ),
         payload={"submission_id": submission_id, "submission_url": submission_url, "dashboard_url": dashboard_url},
-    )
+    ))
 
 
 def queue_status_changed(
@@ -131,7 +133,7 @@ def queue_status_changed(
     if reason:
         payload["reason"] = reason
 
-    send_notification_email.delay(
+    transaction.on_commit(lambda: send_notification_email.delay(
         event_type="status_changed",
         user_id=recipient_id,
         to_email=recipient_email,
@@ -139,7 +141,7 @@ def queue_status_changed(
         body=body,
         payload=payload,
         idempotency_key=idempotency_key,
-    )
+    ))
 
 
 def queue_reviewer_invited(
@@ -150,7 +152,7 @@ def queue_reviewer_invited(
 ):
     """Queue reviewer invitation email."""
     invite_url = build_frontend_review_invite_url(invite_token) if invite_token else ""
-    send_notification_email.delay(
+    transaction.on_commit(lambda: send_notification_email.delay(
         event_type="reviewer_invited",
         user_id=None,
         to_email=to_email,
@@ -167,14 +169,14 @@ def queue_reviewer_invited(
             "Thank you for supporting the peer review process.",
         ),
         payload={"assignment_id": assignment_id, "invite_url": invite_url},
-    )
+    ))
 
 
 def queue_reviewer_accepted(assignment_id: int, editor_emails: list[str], submission_title: str):
     """Queue email to editors when reviewer accepts."""
     dashboard_url = build_frontend_editor_dashboard_url()
     for email in editor_emails:
-        send_notification_email.delay(
+        transaction.on_commit(lambda email=email: send_notification_email.delay(
             event_type="reviewer_accepted",
             user_id=None,
             to_email=email,
@@ -187,14 +189,14 @@ def queue_reviewer_accepted(assignment_id: int, editor_emails: list[str], submis
                 dashboard_url,
             ),
             payload={"assignment_id": assignment_id, "dashboard_url": dashboard_url},
-        )
+        ))
 
 
 def queue_reviewer_declined(assignment_id: int, editor_emails: list[str], submission_title: str):
     """Queue email to editors when reviewer declines."""
     dashboard_url = build_frontend_editor_dashboard_url()
     for email in editor_emails:
-        send_notification_email.delay(
+        transaction.on_commit(lambda email=email: send_notification_email.delay(
             event_type="reviewer_declined",
             user_id=None,
             to_email=email,
@@ -207,14 +209,14 @@ def queue_reviewer_declined(assignment_id: int, editor_emails: list[str], submis
                 dashboard_url,
             ),
             payload={"assignment_id": assignment_id, "dashboard_url": dashboard_url},
-        )
+        ))
 
 
 def queue_review_submitted(submission_id: int, editor_emails: list[str], submission_title: str):
     """Queue email when review is submitted."""
     dashboard_url = build_frontend_editor_dashboard_url()
     for email in editor_emails:
-        send_notification_email.delay(
+        transaction.on_commit(lambda email=email: send_notification_email.delay(
             event_type="review_submitted",
             user_id=None,
             to_email=email,
@@ -227,7 +229,7 @@ def queue_review_submitted(submission_id: int, editor_emails: list[str], submiss
                 dashboard_url,
             ),
             payload={"submission_id": submission_id, "dashboard_url": dashboard_url},
-        )
+        ))
 
 
 def queue_revision_requested(
@@ -235,7 +237,7 @@ def queue_revision_requested(
 ):
     """Queue email when revision is requested."""
     submission_url = build_frontend_submission_url(submission_id)
-    send_notification_email.delay(
+    transaction.on_commit(lambda: send_notification_email.delay(
         event_type="revision_requested",
         user_id=author_id,
         to_email=author_email,
@@ -248,13 +250,13 @@ def queue_revision_requested(
             submission_url,
         ),
         payload={"submission_id": submission_id, "submission_url": submission_url},
-    )
+    ))
 
 
 def queue_submission_accepted(submission_id: int, author_email: str, author_id: int):
     """Queue email when submission is accepted."""
     submission_url = build_frontend_submission_url(submission_id)
-    send_notification_email.delay(
+    transaction.on_commit(lambda: send_notification_email.delay(
         event_type="submission_accepted",
         user_id=author_id,
         to_email=author_email,
@@ -267,7 +269,7 @@ def queue_submission_accepted(submission_id: int, author_email: str, author_id: 
             submission_url,
         ),
         payload={"submission_id": submission_id, "submission_url": submission_url},
-    )
+    ))
 
 
 def queue_submission_rejected(
@@ -275,7 +277,7 @@ def queue_submission_rejected(
 ):
     """Queue email when submission is rejected."""
     submission_url = build_frontend_submission_url(submission_id)
-    send_notification_email.delay(
+    transaction.on_commit(lambda: send_notification_email.delay(
         event_type="submission_rejected",
         user_id=author_id,
         to_email=author_email,
@@ -288,7 +290,7 @@ def queue_submission_rejected(
             submission_url,
         ),
         payload={"submission_id": submission_id, "reason": decision_letter, "submission_url": submission_url},
-    )
+    ))
 
 
 def queue_submission_published(submission_id: int, author_email: str, author_id: int):
@@ -309,7 +311,7 @@ def queue_submission_published(submission_id: int, author_email: str, author_id:
     )
 
     submission_url = build_frontend_submission_url(submission_id)
-    send_notification_email.delay(
+    transaction.on_commit(lambda: send_notification_email.delay(
         event_type="submission_published",
         user_id=author_id,
         to_email=author_email,
@@ -330,17 +332,17 @@ def queue_submission_published(submission_id: int, author_email: str, author_id:
             "google_scholar_url": author_scholar_url,
             "google_scholar_setup_url": scholar_setup_url,
         },
-    )
+    ))
 
 
 def queue_review_reminder_email(assignment_id: int):
     """Queue review reminder email (called from editorial remind action)."""
-    send_review_reminder.delay(assignment_id)
+    transaction.on_commit(lambda: send_review_reminder.delay(assignment_id))
 
 
 def queue_reviewer_approved(to_email: str, user_id: int):
     """Queue email when admin approves reviewer role."""
-    send_notification_email.delay(
+    transaction.on_commit(lambda: send_notification_email.delay(
         event_type="reviewer_approved",
         user_id=user_id,
         to_email=to_email,
@@ -353,12 +355,12 @@ def queue_reviewer_approved(to_email: str, user_id: int):
             build_frontend_dashboard_url(),
         ),
         payload={"user_id": user_id},
-    )
+    ))
 
 
 def queue_editor_approved(to_email: str, user_id: int):
     """Queue email when admin approves editor role."""
-    send_notification_email.delay(
+    transaction.on_commit(lambda: send_notification_email.delay(
         event_type="editor_approved",
         user_id=user_id,
         to_email=to_email,
@@ -371,4 +373,4 @@ def queue_editor_approved(to_email: str, user_id: int):
             build_frontend_editor_dashboard_url(),
         ),
         payload={"user_id": user_id},
-    )
+    ))

@@ -23,6 +23,7 @@ def make_user(roles, reviewer_status=None, editor_status=None):
         user.reviewer_status = reviewer_status
     if editor_status:
         user.editor_status = editor_status
+    user.is_email_verified = True
     user.save()
     return user
 

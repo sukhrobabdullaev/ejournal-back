@@ -499,14 +499,17 @@ class EditorialSubmissionViewSet(viewsets.ReadOnlyModelViewSet):
                 if review_ids:
                     from notifications.tasks import send_author_reviewer_recognition_certificate
 
-                    for review_id in review_ids:
-                        try:
-                            send_author_reviewer_recognition_certificate.delay(review_id)
-                        except Exception:
-                            logger.exception(
-                                "Failed to queue reviewer recognition certificate for review_id=%s",
-                                review_id,
-                            )
+                    def _queue_recognition_certificates(review_ids=review_ids):
+                        for review_id in review_ids:
+                            try:
+                                send_author_reviewer_recognition_certificate.delay(review_id)
+                            except Exception:
+                                logger.exception(
+                                    "Failed to queue reviewer recognition certificate for review_id=%s",
+                                    review_id,
+                                )
+
+                    transaction.on_commit(_queue_recognition_certificates)
             elif decision == "reject":
                 queue_submission_rejected(submission.id, author.email, author.id, decision_letter)
 

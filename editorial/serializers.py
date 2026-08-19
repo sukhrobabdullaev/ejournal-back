@@ -31,6 +31,7 @@ class EditorialSubmissionSerializer(serializers.ModelSerializer):
     author_google_scholar_url = serializers.SerializerMethodField()
     author_has_orcid = serializers.SerializerMethodField()
     author_has_google_scholar = serializers.SerializerMethodField()
+    author_name = serializers.CharField(source="author.full_name", read_only=True)
 
     class Meta:
         model = Submission
@@ -45,6 +46,7 @@ class EditorialSubmissionSerializer(serializers.ModelSerializer):
             "keywords",
             "topic_area",
             "author",
+            "author_name",
             "author_orcid_id",
             "author_google_scholar_url",
             "author_has_orcid",

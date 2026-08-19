@@ -14,12 +14,15 @@ from submissions.models import JournalIssue, STATUS_PUBLISHED, Submission, Topic
 
 
 def make_user(email: str, roles: list[str]):
-    return User.objects.create_user(
+    user = User.objects.create_user(
         email=email,
         password="testpass123",
         full_name=email.split("@")[0].title(),
         roles=roles,
     )
+    user.is_email_verified = True
+    user.save()
+    return user
 
 
 class JournalCertificateTaskTest(TestCase):
