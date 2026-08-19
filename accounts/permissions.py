@@ -14,7 +14,7 @@ def _call_or_value(value):
     return value() if callable(value) else value
 
 class IsEmailVerified(permissions.BasePermission):
-    message = "Ushbu amalni bajarish uchun elektron pochtangiz tasdiqlangan bo'lishi shart."
+    message = "Your email address must be verified to perform this action."
 
     def has_permission(self, request, view):
         user = _get_request_user(request)
@@ -24,7 +24,7 @@ class IsEmailVerified(permissions.BasePermission):
         return getattr(user, 'is_email_verified', False) is True
 
 class IsApprovedEditor(permissions.BasePermission):
-    message = "Sizning Editor rolingiz hali tasdiqlanmagan yoki sizda bu rol yo'q."
+    message = "Your Editor role has not been approved yet, or you don't have this role."
 
     def has_permission(self, request, view):
         user = _get_request_user(request)
@@ -43,7 +43,7 @@ class IsApprovedEditor(permissions.BasePermission):
         return bool(has_role and is_approved)
 
 class IsApprovedReviewer(permissions.BasePermission):
-    message = "Sizning Taqrizchi rolingiz tasdiqlanmagan yoki sizda bu rol yo'q."
+    message = "Your Reviewer role has not been approved, or you don't have this role."
 
     def has_permission(self, request, view):
         user = _get_request_user(request)
@@ -62,7 +62,7 @@ class IsApprovedReviewer(permissions.BasePermission):
         return bool(has_role and is_approved)
 
 class IsAuthor(permissions.BasePermission):
-    message = "Sizda Muallif (Author) roli yo'q."
+    message = "You don't have the Author role."
 
     def has_permission(self, request, view):
         user = _get_request_user(request)
