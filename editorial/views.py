@@ -149,7 +149,7 @@ def merge_submission_pdfs(submissions: list[Submission]) -> bytes:
                 from PyPDF2 import PdfReader
 
                 PdfReader(BytesIO(pdf_bytes))
-            except PdfReadError as exc:
+            except (PdfReadError, ValueError) as exc:
                 raise ValidationError(
                     {
                         "detail": (
@@ -161,7 +161,7 @@ def merge_submission_pdfs(submissions: list[Submission]) -> bytes:
 
             try:
                 merger.append(BytesIO(pdf_bytes))
-            except PdfReadError as exc:
+            except (PdfReadError, ValueError) as exc:
                 raise ValidationError(
                     {
                         "detail": (
