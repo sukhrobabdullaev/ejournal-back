@@ -16,6 +16,11 @@ ROLE_CHOICES = [
 class EditorialBoardMember(models.Model):
     """Board member profile for public editorial board page."""
 
+    journal = models.ForeignKey(
+        "journals.Journal",
+        on_delete=models.CASCADE,
+        related_name="board_members",
+    )
     name = models.CharField(max_length=255)
     affiliation = models.CharField(max_length=255, blank=True)
     expertise = models.JSONField(default=list, help_text="List of expertise tags")

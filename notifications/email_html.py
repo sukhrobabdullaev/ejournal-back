@@ -21,12 +21,12 @@ def _linkify_text(text: str) -> str:
   )
 
 
-def wrap_email_html(subject: str, body_plain: str) -> str:
+def wrap_email_html(subject: str, body_plain: str, journal_name: str | None = None) -> str:
     """
     Wrap plain body in a simple, readable HTML layout with journal name.
     Escapes body for safe HTML; newlines become <br> for readability.
     """
-    journal = getattr(settings, "JOURNAL_NAME", "Ditech Asia")
+    journal = journal_name or getattr(settings, "JOURNAL_NAME", "Ditech Asia")
     body_html = "<br>".join(_linkify_text(line) for line in body_plain.splitlines())
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -63,9 +63,10 @@ def render_account_notification_html(
     changed_fields: list[str] | None = None,
     cta_label: str | None = None,
     cta_url: str | None = None,
+    journal_name: str | None = None,
 ) -> str:
     """Professional responsive template for verification/profile notification emails."""
-    journal = getattr(settings, "JOURNAL_NAME", "Ditech Asia")
+    journal = journal_name or getattr(settings, "JOURNAL_NAME", "Ditech Asia")
     roles = recipient_roles or []
     role_badges = "".join(
         (

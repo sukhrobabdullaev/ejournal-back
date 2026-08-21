@@ -161,7 +161,11 @@ class ReviewerOptionSerializer(serializers.ModelSerializer):
         ]
 
     def get_is_approved_reviewer(self, obj):
-        return obj.is_approved_reviewer()
+        from journals import services as journal_services
+
+        request = self.context.get("request")
+        journal = getattr(request, "journal", None) if request else None
+        return journal_services.is_approved_reviewer(obj, journal)
 
 
 class IssueArticleInputSerializer(serializers.Serializer):

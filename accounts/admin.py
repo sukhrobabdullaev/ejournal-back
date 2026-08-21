@@ -9,8 +9,8 @@ from .models import User
 class UserAdmin(BaseUserAdmin):
     """Admin for custom User model."""
 
-    list_display = ["email", "full_name", "roles", "reviewer_status", "editor_status", "is_active"]
-    list_filter = ["is_staff", "is_active", "reviewer_status", "editor_status"]
+    list_display = ["email", "full_name", "is_active"]
+    list_filter = ["is_staff", "is_active"]
     search_fields = ["email", "full_name"]
     ordering = ["-date_joined"]
     readonly_fields = ["last_login", "date_joined"]
@@ -18,7 +18,6 @@ class UserAdmin(BaseUserAdmin):
     fieldsets = (
         (None, {"fields": ("email", "password")}),
         ("Profile", {"fields": ("full_name", "affiliation", "country", "orcid_id", "google_scholar_url", "is_email_verified")}),
-        ("Roles", {"fields": ("roles", "reviewer_status", "editor_status", "why_to_be")}),
         ("Permissions", {"fields": ("is_active", "is_staff", "is_superuser")}),
         ("Dates", {"fields": ("last_login", "date_joined")}),
     )

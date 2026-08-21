@@ -28,14 +28,16 @@ class SignupView(generics.CreateAPIView):
         verification_url = f"{frontend_url}/verify-email?token={token}"
         queue_email_verification(user.id, user.email, verification_url)
 
+        memberships = [
+            {"journal_slug": m.journal.slug, "role": m.role, "status": m.status}
+            for m in user.journal_memberships.select_related("journal").all()
+        ]
         return Response(
             {
                 "id": user.id,
                 "email": user.email,
                 "full_name": user.full_name,
-                "roles": user.roles,
-                "reviewer_status": user.reviewer_status,
-                "editor_status": user.editor_status,
+                "memberships": memberships,
                 "message": "Account created. Check your email to verify your address, then use /api/auth/login to obtain tokens.",
             },
             status=status.HTTP_201_CREATED,
@@ -67,10 +69,13 @@ class MeView(generics.RetrieveUpdateAPIView):
                 changed_fields.append(field)
 
         if changed_fields:
+            roles = list(
+                user.journal_memberships.values_list("role", flat=True).distinct()
+            )
             queue_profile_updated(
                 user_id=user.id,
                 to_email=user.email,
-                roles=user.roles or [],
+                roles=roles,
                 changed_fields=changed_fields,
             )
 

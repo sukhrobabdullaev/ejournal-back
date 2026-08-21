@@ -4,14 +4,18 @@ from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
 
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
-    """Add user_id and roles to JWT payload and enforce email verification."""
+    """Add user_id/email to JWT payload and enforce email verification.
+
+    Roles are per-journal now (see journals.models.JournalMembership) and
+    are not baked into the token - permission checks always re-query per
+    request using the journal resolved from the URL.
+    """
 
     @classmethod
     def get_token(cls, user):
         token = super().get_token(user)
         token["user_id"] = user.id
         token["email"] = user.email
-        token["roles"] = user.roles or []
         return token
 
     def validate(self, attrs):

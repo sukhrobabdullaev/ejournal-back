@@ -27,9 +27,6 @@ from .transitions import validate_transition
 from .validation import validate_submission_ready_for_submit
 
 
-JOURNAL_TITLE = "Digital Innovation and Emerging Technologies - Ditech Asia Journal"
-
-
 class SubmissionViewSet(
     mixins.CreateModelMixin,
     mixins.ListModelMixin,
@@ -46,7 +43,7 @@ class SubmissionViewSet(
     def get_queryset(self):
         return (
             Submission.objects
-            .filter(author=self.request.user)
+            .filter(author=self.request.user, journal=self.request.journal)
             .select_related("topic_area")
             .prefetch_related(
                 "supplementary_files",
@@ -64,7 +61,7 @@ class SubmissionViewSet(
         """POST /api/submissions - Create submission in submitted state."""
         serializer = self.get_serializer(data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
-        submission = serializer.save(author=request.user, status=STATUS_SUBMITTED)
+        submission = serializer.save(author=request.user, journal=request.journal, status=STATUS_SUBMITTED)
         from audit.services import log
         log(actor_user=request.user, action_type="submission_created", target_type="submission", target_id=submission.id)
         serializer_out = self.get_serializer(submission)
@@ -89,7 +86,7 @@ class SubmissionViewSet(
         return super().update(request, *args, **kwargs)
 
     @action(detail=True, methods=["post"], url_path="upload-file")
-    def upload_file(self, request, pk=None):
+    def upload_file(self, request, pk=None, **kwargs):
         """POST /api/submissions/{id}/upload-file - Upload file via form-data (file, file_type). Returns file URL."""
         submission = self.get_object()
         if submission.status not in (STATUS_SUBMITTED, STATUS_REVISION_REQUIRED):
@@ -130,7 +127,7 @@ class SubmissionViewSet(
             return Response({"url": url, "file_type": "supplementary", "id": supp.id})
 
     @action(detail=True, methods=["post"], url_path="submit")
-    def submit(self, request, pk=None):
+    def submit(self, request, pk=None, **kwargs):
         """POST /api/submissions/{id}/submit - Finalize initial submitted record and create version."""
         submission = self.get_object()
         if submission.status != STATUS_SUBMITTED:
@@ -162,7 +159,7 @@ class SubmissionViewSet(
             )
 
             from notifications.services import queue_submission_submitted
-            queue_submission_submitted(submission.id, submission.author.email, submission.author.id)
+            queue_submission_submitted(submission.id, submission.author.email, submission.author.id, journal_name=submission.journal.name)
 
             # Create initial SubmissionVersion
             supp_snapshot = [
@@ -180,7 +177,7 @@ class SubmissionViewSet(
         return Response(serializer.data)
 
     @action(detail=True, methods=["post"], url_path="resubmit")
-    def resubmit(self, request, pk=None):
+    def resubmit(self, request, pk=None, **kwargs):
         """POST /api/submissions/{id}/resubmit - revision_required -> resubmitted (after author updates)."""
         submission = self.get_object()
         try:
@@ -203,7 +200,7 @@ class SubmissionViewSet(
             log(actor_user=request.user, action_type="submission_resubmitted", target_type="submission", target_id=submission.id, old_value={"status": old_status}, new_value={"status": STATUS_RESUBMITTED})
 
             from notifications.services import queue_submission_submitted
-            queue_submission_submitted(submission.id, submission.author.email, submission.author.id)
+            queue_submission_submitted(submission.id, submission.author.email, submission.author.id, journal_name=submission.journal.name)
 
             next_version = (submission.versions.aggregate(max_v=Max("version_number"))["max_v"] or 0) + 1
             supp_snapshot = [
@@ -226,7 +223,9 @@ class TopicAreaViewSet(viewsets.ReadOnlyModelViewSet):
 
     permission_classes = [IsAuthenticated, IsEmailVerified]
     serializer_class = TopicAreaSerializer
-    queryset = TopicArea.objects.all()
+
+    def get_queryset(self):
+        return TopicArea.objects.filter(journal=self.request.journal)
 
 
 def _build_article_slug(submission: Submission) -> str:
@@ -256,7 +255,7 @@ def _format_citation_date(value: date | datetime | None) -> str | None:
 def _build_scholar_article_url(submission: Submission, request) -> str:
     slug = _build_article_slug(submission)
     return request.build_absolute_uri(
-        reverse("scholar-article-landing", kwargs={"slug": slug})
+        reverse("scholar-article-landing", kwargs={"journal_slug": request.journal.slug, "slug": slug})
     )
 
 
@@ -277,7 +276,7 @@ def _public_article_payload(submission: Submission, request) -> dict:
         "title": submission.title or "Untitled",
         "abstract": submission.abstract or "",
         "keywords": submission.keywords or [],
-        "journal_title": JOURNAL_TITLE,
+        "journal_title": request.journal.name,
         "volume": issue.volume if issue else None,
         "issue_number": issue.issue_number if issue else None,
         "topic_tags": [topic_name] if topic_name else [],
@@ -319,7 +318,7 @@ class ArticleListView(APIView):
 
     def get(self, request, *args, **kwargs):
         queryset = (
-            Submission.objects.filter(status=STATUS_PUBLISHED)
+            Submission.objects.filter(status=STATUS_PUBLISHED, journal=request.journal)
             .select_related("author", "topic_area", "issue")
             .order_by("-updated_at")
         )
@@ -338,7 +337,7 @@ class ArticleDetailView(APIView):
             return Response({"detail": "Article not found."}, status=status.HTTP_404_NOT_FOUND)
 
         submission = (
-            Submission.objects.filter(id=submission_id, status=STATUS_PUBLISHED)
+            Submission.objects.filter(id=submission_id, status=STATUS_PUBLISHED, journal=request.journal)
             .select_related("author", "topic_area", "issue")
             .first()
         )
@@ -356,7 +355,7 @@ class ScholarArticleIndexView(APIView):
 
     def get(self, request, *args, **kwargs):
         queryset = (
-            Submission.objects.filter(status=STATUS_PUBLISHED)
+            Submission.objects.filter(status=STATUS_PUBLISHED, journal=request.journal)
             .select_related("author", "issue")
             .order_by("-updated_at")
         )
@@ -381,7 +380,7 @@ class ScholarArticleIndexView(APIView):
         html = render_to_string(
             "scholar/article_index.html",
             {
-                "journal_title": JOURNAL_TITLE,
+                "journal_title": request.journal.name,
                 "articles": articles,
             },
         )
@@ -401,7 +400,7 @@ class ScholarArticleLandingView(APIView):
             return HttpResponse("Article not found.", status=404)
 
         submission = (
-            Submission.objects.filter(id=submission_id, status=STATUS_PUBLISHED)
+            Submission.objects.filter(id=submission_id, status=STATUS_PUBLISHED, journal=request.journal)
             .select_related("author", "topic_area", "issue")
             .first()
         )
@@ -421,7 +420,7 @@ class ScholarArticleLandingView(APIView):
         orcid_url = f"https://orcid.org/{orcid_id}" if orcid_id else None
 
         context = {
-            "journal_title": JOURNAL_TITLE,
+            "journal_title": request.journal.name,
             "article_title": submission.title or "Untitled",
             "article_abstract": submission.abstract or "",
             "authors": [
@@ -457,14 +456,16 @@ class ScholarSitemapView(APIView):
 
     def get(self, request, *args, **kwargs):
         queryset = (
-            Submission.objects.filter(status=STATUS_PUBLISHED)
+            Submission.objects.filter(status=STATUS_PUBLISHED, journal=request.journal)
             .only("id", "title", "updated_at")
             .order_by("-updated_at")
         )
 
         urls = [
             {
-                "loc": request.build_absolute_uri(reverse("scholar-article-index")),
+                "loc": request.build_absolute_uri(
+                    reverse("scholar-article-index", kwargs={"journal_slug": request.journal.slug})
+                ),
                 "lastmod": timezone.now().date().isoformat(),
             }
         ]
@@ -490,7 +491,7 @@ class ScholarRobotsTxtView(APIView):
             "User-agent: *",
             "Allow: /",
             "Disallow: /admin/",
-            f"Sitemap: {request.build_absolute_uri(reverse('scholar-sitemap'))}",
+            f"Sitemap: {request.build_absolute_uri(reverse('scholar-sitemap', kwargs={'journal_slug': request.journal.slug}))}",
         ]
         return HttpResponse("\n".join(lines) + "\n", content_type="text/plain; charset=utf-8")
 
@@ -576,7 +577,7 @@ class PublishedIssueListView(APIView):
     def get(self, request, *args, **kwargs):
         queryset = (
             JournalIssue.objects
-            .filter(articles__status=STATUS_PUBLISHED)
+            .filter(articles__status=STATUS_PUBLISHED, journal=request.journal)
             .distinct()
             .order_by("-publication_year", "-volume", "-issue_number")
         )
@@ -592,7 +593,7 @@ class PublishedIssueDetailView(APIView):
     def get(self, request, issue_id, *args, **kwargs):
         issue = (
             JournalIssue.objects
-            .filter(id=issue_id)
+            .filter(id=issue_id, journal=request.journal)
             .first()
         )
         if not issue:

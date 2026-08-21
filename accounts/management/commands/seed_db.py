@@ -4,8 +4,11 @@ import os
 from django.core.management.base import BaseCommand
 from django.db import transaction
 
-from accounts.models import APPROVAL_APPROVED, User
+from accounts.models import User
+from journals.models import MEMBERSHIP_STATUS_APPROVED, Journal, JournalMembership
 from submissions.models import TopicArea
+
+DEFAULT_JOURNAL_SLUG = "ditech-asia"
 
 
 class Command(BaseCommand):
@@ -25,17 +28,30 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         with transaction.atomic():
-            self._seed_topic_areas()
+            journal = self._seed_default_journal()
+            self._seed_topic_areas(journal)
 
             if not options["no_superuser"]:
                 self._seed_superuser()
 
             if options["sample_users"]:
-                self._seed_sample_users()
+                self._seed_sample_users(journal)
 
         self.stdout.write(self.style.SUCCESS("Seed completed."))
 
-    def _seed_topic_areas(self):
+    def _seed_default_journal(self):
+        journal, _ = Journal.objects.get_or_create(
+            slug=DEFAULT_JOURNAL_SLUG,
+            defaults=dict(
+                name="Ditech Asia",
+                doi_prefix="10.5555",
+                from_name="Ditech Asia",
+                is_active=True,
+            ),
+        )
+        return journal
+
+    def _seed_topic_areas(self, journal):
         areas = [
             ("Artificial Intelligence", "ai"),
             ("Software Engineering", "swe"),
@@ -45,7 +61,9 @@ class Command(BaseCommand):
         ]
         created = 0
         for name, slug in areas:
-            _, created_this = TopicArea.objects.get_or_create(slug=slug, defaults={"name": name})
+            _, created_this = TopicArea.objects.get_or_create(
+                journal=journal, slug=slug, defaults={"name": name}
+            )
             if created_this:
                 created += 1
         self.stdout.write(f"  Topic areas: {created} created")
@@ -63,29 +81,25 @@ class Command(BaseCommand):
         )
         self.stdout.write(f"  Superuser: {email} / {password}")
 
-    def _seed_sample_users(self):
+    def _seed_sample_users(self, journal):
         users_data = [
             ("author@test.com", "author123", "Sample Author", ["author"]),
-            ("reviewer@test.com", "reviewer123", "Sample Reviewer", ["reviewer"], APPROVAL_APPROVED, None),
-            ("editor@test.com", "editor123", "Sample Editor", ["editor"], None, APPROVAL_APPROVED),
+            ("reviewer@test.com", "reviewer123", "Sample Reviewer", ["reviewer"]),
+            ("editor@test.com", "editor123", "Sample Editor", ["editor"]),
         ]
-        for row in users_data:
-            email, password, name, roles = row[0], row[1], row[2], row[3]
-            reviewer_status = row[4] if len(row) > 4 else None
-            editor_status = row[5] if len(row) > 5 else None
+        for email, password, name, roles in users_data:
             if User.objects.filter(email=email).exists():
                 continue
             user = User.objects.create_user(
                 email=email,
                 password=password,
                 full_name=name,
-                roles=roles,
             )
-            if reviewer_status:
-                user.reviewer_status = reviewer_status
-            if editor_status:
-                user.editor_status = editor_status
             user.is_email_verified = True
             user.save()
+            for role in roles:
+                JournalMembership.objects.create(
+                    user=user, journal=journal, role=role, status=MEMBERSHIP_STATUS_APPROVED
+                )
             self.stdout.write(f"  User: {email}")
         self.stdout.write("  Sample users created (passwords: author123, reviewer123, editor123)")

@@ -1,129 +1,104 @@
-"""Admin API views for user role approvals."""
+"""Admin API views for per-journal user role approvals."""
 from rest_framework import status
 from rest_framework.permissions import IsAdminUser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import APPROVAL_APPROVED, APPROVAL_REJECTED, User
+from journals.models import (
+    MEMBERSHIP_STATUS_APPROVED,
+    MEMBERSHIP_STATUS_REJECTED,
+    JournalMembership,
+)
+
+from .models import User
 
 
-class ApproveReviewerView(APIView):
-    """POST /api/admin/users/{id}/approve-reviewer - Approve reviewer role."""
+class _ApproveOrRejectMembershipView(APIView):
+    """Base for the four approve/reject views below. Requires request.journal
+    (attached by JournalContextMiddleware from the /api/j/<slug>/... prefix).
+    """
 
     permission_classes = [IsAdminUser]
+    role = None  # "reviewer" or "editor"
+    target_status = None  # MEMBERSHIP_STATUS_APPROVED or MEMBERSHIP_STATUS_REJECTED
+    action_type = None
+    require_reason = False
 
-    def post(self, request, user_id):
+    def post(self, request, user_id, **kwargs):
+        journal = getattr(request, "journal", None)
+        if journal is None:
+            return Response({"detail": "Journal context is required."}, status=status.HTTP_404_NOT_FOUND)
+
+        reason = ""
+        if self.require_reason:
+            reason = request.data.get("reason", "").strip()
+            if not reason:
+                return Response({"detail": "Reason is required."}, status=status.HTTP_400_BAD_REQUEST)
+
         user = User.objects.filter(id=user_id).first()
         if not user:
             return Response({"detail": "User not found."}, status=status.HTTP_404_NOT_FOUND)
-        if "reviewer" not in (user.roles or []):
+
+        membership = JournalMembership.objects.filter(
+            user=user, journal=journal, role=self.role
+        ).first()
+        if not membership:
             return Response(
-                {"detail": "User does not have reviewer role."},
+                {"detail": f"User does not have {self.role} role for this journal."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        user.reviewer_status = APPROVAL_APPROVED
-        user.save(update_fields=["reviewer_status"])
 
-        from audit.services import log
-        log(actor_user=request.user, action_type="reviewer_approved", target_type="user", target_id=user_id)
-
-        from notifications.services import queue_reviewer_approved
-        queue_reviewer_approved(user.email, user.id)
-
-        return Response({"reviewer_status": user.reviewer_status})
-
-
-class ApproveEditorView(APIView):
-    """POST /api/admin/users/{id}/approve-editor - Approve editor role."""
-
-    permission_classes = [IsAdminUser]
-
-    def post(self, request, user_id):
-        user = User.objects.filter(id=user_id).first()
-        if not user:
-            return Response({"detail": "User not found."}, status=status.HTTP_404_NOT_FOUND)
-        if "editor" not in (user.roles or []):
-            return Response(
-                {"detail": "User does not have editor role."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        user.editor_status = APPROVAL_APPROVED
-        user.save(update_fields=["editor_status"])
-
-        from audit.services import log
-        log(actor_user=request.user, action_type="editor_approved", target_type="user", target_id=user_id)
-
-        from notifications.services import queue_editor_approved
-        queue_editor_approved(user.email, user.id)
-
-        return Response({"editor_status": user.editor_status})
-
-
-class RejectReviewerView(APIView):
-    """POST /api/admin/users/{id}/reject-reviewer - Reject reviewer role (reason required)."""
-
-    permission_classes = [IsAdminUser]
-
-    def post(self, request, user_id):
-        reason = request.data.get("reason", "").strip()
-        if not reason:
-            return Response(
-                {"detail": "Reason is required."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        user = User.objects.filter(id=user_id).first()
-        if not user:
-            return Response({"detail": "User not found."}, status=status.HTTP_404_NOT_FOUND)
-        if "reviewer" not in (user.roles or []):
-            return Response(
-                {"detail": "User does not have reviewer role."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        user.reviewer_status = APPROVAL_REJECTED
-        user.save(update_fields=["reviewer_status"])
+        membership.status = self.target_status
+        membership.save(update_fields=["status", "updated_at"])
 
         from audit.services import log
         log(
             actor_user=request.user,
-            action_type="reviewer_rejected",
-            target_type="user",
-            target_id=user_id,
-            new_value={"reason": reason},
+            action_type=self.action_type,
+            target_type="journal_membership",
+            target_id=membership.id,
+            new_value={"reason": reason} if reason else None,
         )
 
-        return Response({"reviewer_status": user.reviewer_status})
+        if self.target_status == MEMBERSHIP_STATUS_APPROVED:
+            from notifications.services import queue_editor_approved, queue_reviewer_approved
+            if self.role == "reviewer":
+                queue_reviewer_approved(user.email, user.id, journal_name=journal.name)
+            else:
+                queue_editor_approved(user.email, user.id, journal_name=journal.name)
+
+        return Response({"role": self.role, "status": membership.status})
 
 
-class RejectEditorView(APIView):
-    """POST /api/admin/users/{id}/reject-editor - Reject editor role (reason required)."""
+class ApproveReviewerView(_ApproveOrRejectMembershipView):
+    """POST /api/j/{slug}/admin/users/{id}/approve-reviewer - Approve reviewer role."""
 
-    permission_classes = [IsAdminUser]
+    role = "reviewer"
+    target_status = MEMBERSHIP_STATUS_APPROVED
+    action_type = "reviewer_approved"
 
-    def post(self, request, user_id):
-        reason = request.data.get("reason", "").strip()
-        if not reason:
-            return Response(
-                {"detail": "Reason is required."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        user = User.objects.filter(id=user_id).first()
-        if not user:
-            return Response({"detail": "User not found."}, status=status.HTTP_404_NOT_FOUND)
-        if "editor" not in (user.roles or []):
-            return Response(
-                {"detail": "User does not have editor role."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        user.editor_status = APPROVAL_REJECTED
-        user.save(update_fields=["editor_status"])
 
-        from audit.services import log
-        log(
-            actor_user=request.user,
-            action_type="editor_rejected",
-            target_type="user",
-            target_id=user_id,
-            new_value={"reason": reason},
-        )
+class ApproveEditorView(_ApproveOrRejectMembershipView):
+    """POST /api/j/{slug}/admin/users/{id}/approve-editor - Approve editor role."""
 
-        return Response({"editor_status": user.editor_status})
+    role = "editor"
+    target_status = MEMBERSHIP_STATUS_APPROVED
+    action_type = "editor_approved"
+
+
+class RejectReviewerView(_ApproveOrRejectMembershipView):
+    """POST /api/j/{slug}/admin/users/{id}/reject-reviewer - Reject reviewer role (reason required)."""
+
+    role = "reviewer"
+    target_status = MEMBERSHIP_STATUS_REJECTED
+    action_type = "reviewer_rejected"
+    require_reason = True
+
+
+class RejectEditorView(_ApproveOrRejectMembershipView):
+    """POST /api/j/{slug}/admin/users/{id}/reject-editor - Reject editor role (reason required)."""
+
+    role = "editor"
+    target_status = MEMBERSHIP_STATUS_REJECTED
+    action_type = "editor_rejected"
+    require_reason = True

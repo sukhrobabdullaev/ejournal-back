@@ -3,36 +3,42 @@ from django.core import mail
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 
-from accounts.models import APPROVAL_APPROVED, User
+from accounts.models import User
+from journals.models import MEMBERSHIP_STATUS_APPROVED
 from notifications.certificates import build_reviewer_recognition_pdf
 from notifications.models import ReviewerRecognitionCertificate
 from notifications.tasks import send_author_reviewer_recognition_certificate
 from reviews.models import RECOMMENDATION_ACCEPT, RECOMMENDATION_REJECT, Review, ReviewAssignment, STATUS_ACCEPTED
 from submissions.models import STATUS_ACCEPTED as SUBMISSION_STATUS_ACCEPTED
 from submissions.models import Submission, SubmissionVersion, TopicArea
+from tests.helpers import make_journal, make_membership
+
+_email_counter = [0]
 
 
-def make_user(roles, reviewer_status=None):
-    role_str = "_".join(roles)
+def make_user(roles, journal, reviewer_status=None):
+    _email_counter[0] += 1
     user = User.objects.create_user(
-        email=f"{role_str}_{id(roles)}@test.com",
+        email=f"user_{_email_counter[0]}@test.com",
         password="testpass123",
-        full_name=f"{role_str.title()} User",
-        roles=roles,
+        full_name="Test User",
+        is_email_verified=True,
     )
-    if reviewer_status:
-        user.reviewer_status = reviewer_status
-        user.save(update_fields=["reviewer_status"])
+    for role in roles:
+        status_ = reviewer_status if (role == "reviewer" and reviewer_status) else MEMBERSHIP_STATUS_APPROVED
+        make_membership(user, journal, role, status=status_)
     return user
 
 
 class ReviewerCertificateTaskTest(TestCase):
     def setUp(self):
-        self.author = make_user(["author"])
-        self.reviewer = make_user(["reviewer"], reviewer_status=APPROVAL_APPROVED)
-        self.topic = TopicArea.objects.create(name="AI", slug="ai")
+        self.journal = make_journal()
+        self.author = make_user(["author"], self.journal)
+        self.reviewer = make_user(["reviewer"], self.journal, reviewer_status=MEMBERSHIP_STATUS_APPROVED)
+        self.topic = TopicArea.objects.create(journal=self.journal, name="AI", slug="ai")
         self.submission = Submission.objects.create(
             author=self.author,
+            journal=self.journal,
             status="under_review",
             title="Large Language Models for Journal Automation",
             abstract="Abstract",

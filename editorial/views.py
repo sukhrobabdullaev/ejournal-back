@@ -17,8 +17,10 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
 
-from accounts.models import APPROVAL_APPROVED, ROLE_REVIEWER, User
+from accounts.models import User
 from accounts.permissions import IsApprovedEditor
+from journals import services as journal_services
+from journals.models import MEMBERSHIP_STATUS_APPROVED, JournalMembership
 from reviews.models import ReviewAssignment, STATUS_INVITED
 from submissions.models import (
     JournalIssue,
@@ -223,11 +225,11 @@ def get_submission_pdf_page_count(submission: Submission) -> int:
             pass
 
 
-def get_submission_queryset():
-    """Submissions visible to editors (initial finalize completed)."""
+def get_submission_queryset(journal):
+    """Submissions visible to editors of one journal (initial finalize completed)."""
     return (
         Submission.objects
-        .filter(versions__isnull=False)
+        .filter(versions__isnull=False, journal=journal)
         .select_related("author", "topic_area")
         .prefetch_related("supplementary_files", "review_assignments", "review_assignments__review")
         .distinct()
@@ -241,7 +243,7 @@ class EditorialSubmissionViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = EditorialSubmissionSerializer
 
     def get_queryset(self):
-        qs = get_submission_queryset()
+        qs = get_submission_queryset(self.request.journal)
         status_filter = self.request.query_params.get("status")
         if status_filter:
             qs = qs.filter(status=status_filter)
@@ -256,7 +258,7 @@ class EditorialSubmissionViewSet(viewsets.ReadOnlyModelViewSet):
         return super().retrieve(request, *args, **kwargs)
 
     @action(detail=True, methods=["post"], url_path="start-screening")
-    def start_screening(self, request, pk=None):
+    def start_screening(self, request, pk=None, **kwargs):
         """POST /api/editor/submissions/{id}/start-screening - submitted -> screening."""
         submission = self.get_object()
         try:
@@ -276,13 +278,14 @@ class EditorialSubmissionViewSet(viewsets.ReadOnlyModelViewSet):
                 submission.id, old_status, STATUS_SCREENING,
                 submission.author.email, submission.author_id,
                 idempotency_key=f"status_{submission.id}_{old_status}_{STATUS_SCREENING}",
+                journal_name=submission.journal.name,
             )
 
         serializer = self.get_serializer(submission)
         return Response(serializer.data)
 
     @action(detail=True, methods=["post"], url_path="desk-reject")
-    def desk_reject(self, request, pk=None):
+    def desk_reject(self, request, pk=None, **kwargs):
         """POST /api/editor/submissions/{id}/desk-reject - screening -> desk_rejected."""
         submission = self.get_object()
         serializer = DeskRejectSerializer(data=request.data)
@@ -311,13 +314,14 @@ class EditorialSubmissionViewSet(viewsets.ReadOnlyModelViewSet):
                 submission.author_id,
                 idempotency_key=f"status_{submission.id}_{old_status}_{STATUS_DESK_REJECTED}",
                 reason=reason,
+                journal_name=submission.journal.name,
             )
 
         serializer_out = self.get_serializer(submission)
         return Response(serializer_out.data)
 
     @action(detail=True, methods=["post"], url_path="send-to-review")
-    def send_to_review(self, request, pk=None):
+    def send_to_review(self, request, pk=None, **kwargs):
         """POST /api/editor/submissions/{id}/send-to-review - screening -> under_review."""
         submission = self.get_object()
         try:
@@ -337,13 +341,14 @@ class EditorialSubmissionViewSet(viewsets.ReadOnlyModelViewSet):
                 submission.id, old_status, STATUS_UNDER_REVIEW,
                 submission.author.email, submission.author_id,
                 idempotency_key=f"status_{submission.id}_{old_status}_{STATUS_UNDER_REVIEW}",
+                journal_name=submission.journal.name,
             )
 
         serializer = self.get_serializer(submission)
         return Response(serializer.data)
 
     @action(detail=True, methods=["post"], url_path="invite-reviewer")
-    def invite_reviewer(self, request, pk=None):
+    def invite_reviewer(self, request, pk=None, **kwargs):
         """POST /api/editor/submissions/{id}/invite-reviewer - Invite reviewer."""
         submission = self.get_object()
         serializer = InviteReviewerSerializer(data=request.data)
@@ -372,7 +377,7 @@ class EditorialSubmissionViewSet(viewsets.ReadOnlyModelViewSet):
             reviewer = User.objects.filter(id=reviewer_user_id).first()
             if not reviewer:
                 return Response({"detail": "User not found."}, status=status.HTTP_404_NOT_FOUND)
-            if not reviewer.is_approved_reviewer():
+            if not journal_services.is_approved_reviewer(reviewer, submission.journal):
                 return Response(
                     {"detail": "User is not an approved reviewer."},
                     status=status.HTTP_400_BAD_REQUEST,
@@ -411,6 +416,7 @@ class EditorialSubmissionViewSet(viewsets.ReadOnlyModelViewSet):
             invited_email,
             submission.title or "Untitled",
             assignment.token,
+            journal_name=submission.journal.name,
         )
 
         return Response(
@@ -425,7 +431,7 @@ class EditorialSubmissionViewSet(viewsets.ReadOnlyModelViewSet):
         )
 
     @action(detail=True, methods=["post"], url_path="move-to-decision")
-    def move_to_decision(self, request, pk=None):
+    def move_to_decision(self, request, pk=None, **kwargs):
         """POST /api/editor/submissions/{id}/move-to-decision - under_review -> decision_pending."""
         submission = self.get_object()
         try:
@@ -445,13 +451,14 @@ class EditorialSubmissionViewSet(viewsets.ReadOnlyModelViewSet):
                 submission.id, old_status, STATUS_DECISION_PENDING,
                 submission.author.email, submission.author_id,
                 idempotency_key=f"status_{submission.id}_{old_status}_{STATUS_DECISION_PENDING}",
+                journal_name=submission.journal.name,
             )
 
         serializer = self.get_serializer(submission)
         return Response(serializer.data)
 
     @action(detail=True, methods=["post"])
-    def decision(self, request, pk=None):
+    def decision(self, request, pk=None, **kwargs):
         """POST /api/editor/submissions/{id}/decision - Make accept/reject/revision_required."""
         submission = self.get_object()
         serializer = DecisionSerializer(data=request.data)
@@ -488,9 +495,9 @@ class EditorialSubmissionViewSet(viewsets.ReadOnlyModelViewSet):
             )
             author = submission.author
             if decision == "revision_required":
-                queue_revision_requested(submission.id, author.email, author.id, decision_letter)
+                queue_revision_requested(submission.id, author.email, author.id, decision_letter, journal_name=submission.journal.name)
             elif decision == "accept":
-                queue_submission_accepted(submission.id, author.email, author.id)
+                queue_submission_accepted(submission.id, author.email, author.id, journal_name=submission.journal.name)
                 review_ids = list(
                     submission.review_assignments.filter(review__isnull=False).values_list(
                         "review__id", flat=True
@@ -511,13 +518,13 @@ class EditorialSubmissionViewSet(viewsets.ReadOnlyModelViewSet):
 
                     transaction.on_commit(_queue_recognition_certificates)
             elif decision == "reject":
-                queue_submission_rejected(submission.id, author.email, author.id, decision_letter)
+                queue_submission_rejected(submission.id, author.email, author.id, decision_letter, journal_name=submission.journal.name)
 
         serializer_out = self.get_serializer(submission)
         return Response(serializer_out.data)
 
     @action(detail=True, methods=["post"])
-    def publish(self, request, pk=None):
+    def publish(self, request, pk=None, **kwargs):
         """POST /api/editor/submissions/{id}/publish - accepted -> published."""
         from submissions.models import STATUS_PUBLISHED
 
@@ -536,13 +543,13 @@ class EditorialSubmissionViewSet(viewsets.ReadOnlyModelViewSet):
             log(actor_user=request.user, action_type="publish", target_type="submission", target_id=submission.id, old_value={"status": old_status}, new_value={"status": STATUS_PUBLISHED})
 
             from notifications.services import queue_submission_published
-            queue_submission_published(submission.id, submission.author.email, submission.author.id)
+            queue_submission_published(submission.id, submission.author.email, submission.author.id, journal_name=submission.journal.name)
 
         serializer = self.get_serializer(submission)
         return Response(serializer.data)
 
     @action(detail=True, methods=["post"], url_path="generate-doi")
-    def generate_doi(self, request, pk=None):
+    def generate_doi(self, request, pk=None, **kwargs):
         """POST /api/editor/submissions/{id}/generate-doi - Generate local DOI for accepted/published submission."""
         submission = self.get_object()
         if submission.status not in (STATUS_ACCEPTED, STATUS_PUBLISHED):
@@ -568,9 +575,14 @@ class EditorialReviewAssignmentViewSet(viewsets.ViewSet):
     permission_classes = [IsApprovedEditor]
 
     @action(detail=True, methods=["post"])
-    def remind(self, request, pk=None):
+    def remind(self, request, pk=None, **kwargs):
         """POST /api/editor/review-assignments/{id}/remind - Stub (Phase 6 will send email)."""
-        assignment = ReviewAssignment.objects.filter(id=pk).select_related("submission").first()
+        assignment = (
+            ReviewAssignment.objects
+            .filter(id=pk, submission__journal=request.journal)
+            .select_related("submission")
+            .first()
+        )
         if not assignment:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         if assignment.status not in (STATUS_INVITED, STATUS_ACCEPTED):
@@ -591,8 +603,14 @@ class JournalIssueViewSet(viewsets.ModelViewSet):
 
     permission_classes = [IsApprovedEditor]
     serializer_class = JournalIssueDetailSerializer
-    queryset = JournalIssue.objects.prefetch_related("articles", "articles__author").all()
     http_method_names = ["get", "post", "put", "patch", "head", "options"]
+
+    def get_queryset(self):
+        return (
+            JournalIssue.objects
+            .filter(journal=self.request.journal)
+            .prefetch_related("articles", "articles__author")
+        )
 
     def get_serializer_class(self):
         if self.action in ("create", "update", "partial_update"):
@@ -602,11 +620,15 @@ class JournalIssueViewSet(viewsets.ModelViewSet):
         return JournalIssueDetailSerializer
 
     @action(detail=False, methods=["get"], url_path="accepted-submissions")
-    def accepted_submissions(self, request):
+    def accepted_submissions(self, request, **kwargs):
         """List accepted/published submissions available for issue publishing/editing."""
         queryset = (
             Submission.objects
-            .filter(status__in=[STATUS_ACCEPTED, STATUS_PUBLISHED], issue__isnull=True)
+            .filter(
+                status__in=[STATUS_ACCEPTED, STATUS_PUBLISHED],
+                issue__isnull=True,
+                journal=request.journal,
+            )
             .select_related("author")
             .order_by("-updated_at")
         )
@@ -621,7 +643,7 @@ class JournalIssueViewSet(viewsets.ModelViewSet):
         submission_ids = [item["submission_id"] for item in article_items]
         submissions = (
             Submission.objects
-            .filter(id__in=submission_ids)
+            .filter(id__in=submission_ids, journal=self.request.journal)
             .select_related("author")
         )
         submission_map = {submission.id: submission for submission in submissions}
@@ -692,6 +714,7 @@ class JournalIssueViewSet(viewsets.ModelViewSet):
 
         if issue is None:
             if JournalIssue.objects.filter(
+                journal=self.request.journal,
                 volume=payload["volume"],
                 issue_number=payload["issue_number"],
                 publication_year=payload["publication_year"],
@@ -700,6 +723,7 @@ class JournalIssueViewSet(viewsets.ModelViewSet):
                     {"detail": "This volume/issue/year combination already exists."}
                 )
             issue = JournalIssue(
+                journal=self.request.journal,
                 title=issue_title,
                 volume=payload["volume"],
                 issue_number=payload["issue_number"],
@@ -708,6 +732,7 @@ class JournalIssueViewSet(viewsets.ModelViewSet):
             )
         else:
             duplicate_exists = JournalIssue.objects.filter(
+                journal=self.request.journal,
                 volume=payload["volume"],
                 issue_number=payload["issue_number"],
                 publication_year=payload["publication_year"],
@@ -813,8 +838,9 @@ class ReviewerListView(generics.ListAPIView):
     serializer_class = ReviewerOptionSerializer
 
     def get_queryset(self):
-        qs = User.objects.filter(
-            reviewer_status=APPROVAL_APPROVED,
-        )
-        # Ensure roles contains 'reviewer' in JSONField
-        return qs.filter(roles__contains=[ROLE_REVIEWER])
+        member_user_ids = JournalMembership.objects.filter(
+            journal=self.request.journal,
+            role="reviewer",
+            status=MEMBERSHIP_STATUS_APPROVED,
+        ).values_list("user_id", flat=True)
+        return User.objects.filter(id__in=member_user_ids)

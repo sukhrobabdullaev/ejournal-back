@@ -23,7 +23,7 @@ def _compose_email(title: str, intro: str, bullets: list[str] | None = None, cta
     return "\n".join(lines)
 
 
-def queue_email_verification(user_id: int, to_email: str, verification_url: str):
+def queue_email_verification(user_id: int, to_email: str, verification_url: str, journal_name: str | None = None):
     """Queue email verification message for new signup."""
     body = _compose_email(
         "Welcome to the journal platform",
@@ -42,11 +42,11 @@ def queue_email_verification(user_id: int, to_email: str, verification_url: str)
         to_email=to_email,
         subject="Verify your email address to activate your account",
         body=body,
-        payload={"verification_url": verification_url},
+        payload={"verification_url": verification_url, "journal_name": journal_name},
     ))
 
 
-def queue_profile_updated(user_id: int, to_email: str, roles: list[str], changed_fields: list[str]):
+def queue_profile_updated(user_id: int, to_email: str, roles: list[str], changed_fields: list[str], journal_name: str | None = None):
     """Queue profile update confirmation for author/editor/reviewer users."""
     role_labels = ", ".join(role.title() for role in roles) if roles else "User"
     dashboard_url = build_frontend_dashboard_url()
@@ -71,11 +71,12 @@ def queue_profile_updated(user_id: int, to_email: str, roles: list[str], changed
             "roles": roles,
             "changed_fields": changed_fields,
             "dashboard_url": dashboard_url,
+            "journal_name": journal_name,
         },
     ))
 
 
-def queue_submission_submitted(submission_id: int, author_email: str, author_id: int):
+def queue_submission_submitted(submission_id: int, author_email: str, author_id: int, journal_name: str | None = None):
     """Queue email when submission is submitted."""
     submission_url = build_frontend_submission_url(submission_id)
     dashboard_url = build_frontend_dashboard_url()
@@ -95,7 +96,7 @@ def queue_submission_submitted(submission_id: int, author_email: str, author_id:
             submission_url,
             f"Dashboard: {dashboard_url}",
         ),
-        payload={"submission_id": submission_id, "submission_url": submission_url, "dashboard_url": dashboard_url},
+        payload={"submission_id": submission_id, "submission_url": submission_url, "dashboard_url": dashboard_url, "journal_name": journal_name},
     ))
 
 
@@ -107,6 +108,7 @@ def queue_status_changed(
     recipient_id: int | None,
     idempotency_key: str,
     reason: str | None = None,
+    journal_name: str | None = None,
 ):
     """Queue status change email (idempotent)."""
     submission_url = build_frontend_submission_url(submission_id)
@@ -129,6 +131,7 @@ def queue_status_changed(
         "old_status": old_status,
         "new_status": new_status,
         "submission_url": submission_url,
+        "journal_name": journal_name,
     }
     if reason:
         payload["reason"] = reason
@@ -149,6 +152,7 @@ def queue_reviewer_invited(
     to_email: str,
     submission_title: str,
     invite_token: str | None = None,
+    journal_name: str | None = None,
 ):
     """Queue reviewer invitation email."""
     invite_url = build_frontend_review_invite_url(invite_token) if invite_token else ""
@@ -168,11 +172,11 @@ def queue_reviewer_invited(
             invite_url or None,
             "Thank you for supporting the peer review process.",
         ),
-        payload={"assignment_id": assignment_id, "invite_url": invite_url},
+        payload={"assignment_id": assignment_id, "invite_url": invite_url, "journal_name": journal_name},
     ))
 
 
-def queue_reviewer_accepted(assignment_id: int, editor_emails: list[str], submission_title: str):
+def queue_reviewer_accepted(assignment_id: int, editor_emails: list[str], submission_title: str, journal_name: str | None = None):
     """Queue email to editors when reviewer accepts."""
     dashboard_url = build_frontend_editor_dashboard_url()
     for email in editor_emails:
@@ -188,11 +192,11 @@ def queue_reviewer_accepted(assignment_id: int, editor_emails: list[str], submis
                 "Open editorial dashboard",
                 dashboard_url,
             ),
-            payload={"assignment_id": assignment_id, "dashboard_url": dashboard_url},
+            payload={"assignment_id": assignment_id, "dashboard_url": dashboard_url, "journal_name": journal_name},
         ))
 
 
-def queue_reviewer_declined(assignment_id: int, editor_emails: list[str], submission_title: str):
+def queue_reviewer_declined(assignment_id: int, editor_emails: list[str], submission_title: str, journal_name: str | None = None):
     """Queue email to editors when reviewer declines."""
     dashboard_url = build_frontend_editor_dashboard_url()
     for email in editor_emails:
@@ -208,11 +212,11 @@ def queue_reviewer_declined(assignment_id: int, editor_emails: list[str], submis
                 "Open editorial dashboard",
                 dashboard_url,
             ),
-            payload={"assignment_id": assignment_id, "dashboard_url": dashboard_url},
+            payload={"assignment_id": assignment_id, "dashboard_url": dashboard_url, "journal_name": journal_name},
         ))
 
 
-def queue_review_submitted(submission_id: int, editor_emails: list[str], submission_title: str):
+def queue_review_submitted(submission_id: int, editor_emails: list[str], submission_title: str, journal_name: str | None = None):
     """Queue email when review is submitted."""
     dashboard_url = build_frontend_editor_dashboard_url()
     for email in editor_emails:
@@ -228,12 +232,12 @@ def queue_review_submitted(submission_id: int, editor_emails: list[str], submiss
                 "Open editorial dashboard",
                 dashboard_url,
             ),
-            payload={"submission_id": submission_id, "dashboard_url": dashboard_url},
+            payload={"submission_id": submission_id, "dashboard_url": dashboard_url, "journal_name": journal_name},
         ))
 
 
 def queue_revision_requested(
-    submission_id: int, author_email: str, author_id: int, decision_letter: str
+    submission_id: int, author_email: str, author_id: int, decision_letter: str, journal_name: str | None = None
 ):
     """Queue email when revision is requested."""
     submission_url = build_frontend_submission_url(submission_id)
@@ -249,11 +253,11 @@ def queue_revision_requested(
             "Open submission",
             submission_url,
         ),
-        payload={"submission_id": submission_id, "submission_url": submission_url},
+        payload={"submission_id": submission_id, "submission_url": submission_url, "journal_name": journal_name},
     ))
 
 
-def queue_submission_accepted(submission_id: int, author_email: str, author_id: int):
+def queue_submission_accepted(submission_id: int, author_email: str, author_id: int, journal_name: str | None = None):
     """Queue email when submission is accepted."""
     submission_url = build_frontend_submission_url(submission_id)
     transaction.on_commit(lambda: send_notification_email.delay(
@@ -268,12 +272,12 @@ def queue_submission_accepted(submission_id: int, author_email: str, author_id: 
             "Open submission",
             submission_url,
         ),
-        payload={"submission_id": submission_id, "submission_url": submission_url},
+        payload={"submission_id": submission_id, "submission_url": submission_url, "journal_name": journal_name},
     ))
 
 
 def queue_submission_rejected(
-    submission_id: int, author_email: str, author_id: int, decision_letter: str
+    submission_id: int, author_email: str, author_id: int, decision_letter: str, journal_name: str | None = None
 ):
     """Queue email when submission is rejected."""
     submission_url = build_frontend_submission_url(submission_id)
@@ -289,11 +293,11 @@ def queue_submission_rejected(
             "Open submission",
             submission_url,
         ),
-        payload={"submission_id": submission_id, "reason": decision_letter, "submission_url": submission_url},
+        payload={"submission_id": submission_id, "reason": decision_letter, "submission_url": submission_url, "journal_name": journal_name},
     ))
 
 
-def queue_submission_published(submission_id: int, author_email: str, author_id: int):
+def queue_submission_published(submission_id: int, author_email: str, author_id: int, journal_name: str | None = None):
     """Queue email when submission is published."""
     from django.contrib.auth import get_user_model
 
@@ -331,6 +335,7 @@ def queue_submission_published(submission_id: int, author_email: str, author_id:
             "submission_url": submission_url,
             "google_scholar_url": author_scholar_url,
             "google_scholar_setup_url": scholar_setup_url,
+            "journal_name": journal_name,
         },
     ))
 
@@ -340,7 +345,7 @@ def queue_review_reminder_email(assignment_id: int):
     transaction.on_commit(lambda: send_review_reminder.delay(assignment_id))
 
 
-def queue_reviewer_approved(to_email: str, user_id: int):
+def queue_reviewer_approved(to_email: str, user_id: int, journal_name: str | None = None):
     """Queue email when admin approves reviewer role."""
     transaction.on_commit(lambda: send_notification_email.delay(
         event_type="reviewer_approved",
@@ -354,11 +359,11 @@ def queue_reviewer_approved(to_email: str, user_id: int):
             "Open dashboard",
             build_frontend_dashboard_url(),
         ),
-        payload={"user_id": user_id},
+        payload={"user_id": user_id, "journal_name": journal_name},
     ))
 
 
-def queue_editor_approved(to_email: str, user_id: int):
+def queue_editor_approved(to_email: str, user_id: int, journal_name: str | None = None):
     """Queue email when admin approves editor role."""
     transaction.on_commit(lambda: send_notification_email.delay(
         event_type="editor_approved",
@@ -372,5 +377,5 @@ def queue_editor_approved(to_email: str, user_id: int):
             "Open editorial dashboard",
             build_frontend_editor_dashboard_url(),
         ),
-        payload={"user_id": user_id},
+        payload={"user_id": user_id, "journal_name": journal_name},
     ))

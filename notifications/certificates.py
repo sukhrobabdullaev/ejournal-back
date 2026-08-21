@@ -107,6 +107,7 @@ def build_reviewer_recognition_pdf(
     verification_url: str = "",
     reviewer_comment: str = "",
     editor_comment: str = "",
+    journal_name: str | None = None,
 ) -> bytes:
     """Build reviewer recognition certificate as a designed PDF bytes blob."""
     submission_title = (submission_title or "Untitled article").strip()
@@ -115,7 +116,7 @@ def build_reviewer_recognition_pdf(
     issued_at = issued_at or timezone.now()
     issued_label = issued_at.strftime("%B %Y")
 
-    journal_name = getattr(settings, "JOURNAL_NAME", "DCIJ")
+    journal_name = journal_name or getattr(settings, "JOURNAL_NAME", "DCIJ")
     certificate_org = getattr(
         settings,
         "CERTIFICATE_ORGANIZATION_NAME",
@@ -312,6 +313,7 @@ def build_journal_publication_certificate_pdf(
     author_affiliation: str = "",
     author_country: str = "",
     certificate_code: str = "",
+    journal_name: str | None = None,
 ) -> bytes:
     """Build journal publication certificate PDF bytes for issue publication email."""
     issued_at = timezone.now()
@@ -321,7 +323,7 @@ def build_journal_publication_certificate_pdf(
         if publication_date
         else str(publication_year)
     )
-    journal_name = getattr(settings, "JOURNAL_NAME", "Ditech Asia")
+    journal_name = journal_name or getattr(settings, "JOURNAL_NAME", "Ditech Asia")
     journal_long_name = getattr(
         settings,
         "JOURNAL_FULL_NAME",
@@ -421,7 +423,7 @@ def build_journal_publication_certificate_pdf(
     pdf.setFont("Helvetica", 9.5)
     footer_left = 24 * mm
     pdf.drawString(footer_left, 20 * mm, f"Journal: {journal_name}")
-    pdf.drawString(footer_left, 15 * mm, "Publisher: Ditech Asia Editorial System")
+    pdf.drawString(footer_left, 15 * mm, f"Publisher: {journal_name} Editorial System")
     pdf.drawString(footer_left, 10 * mm, f"Certificate code: {certificate_code or 'N/A'}")
 
     pdf.showPage()

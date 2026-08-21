@@ -9,8 +9,10 @@ from rest_framework.test import APIClient
 
 from PyPDF2 import PdfReader, PdfWriter
 
-from accounts.models import APPROVAL_APPROVED, User
+from accounts.models import User
+from journals.models import MEMBERSHIP_STATUS_APPROVED
 from submissions.models import DOI_STATUS_PENDING, JournalIssue, STATUS_ACCEPTED, STATUS_PUBLISHED, Submission, TopicArea
+from tests.helpers import make_journal, make_membership
 
 
 def make_pdf_file(filename: str, pages: int = 1) -> SimpleUploadedFile:
@@ -23,17 +25,16 @@ def make_pdf_file(filename: str, pages: int = 1) -> SimpleUploadedFile:
     return SimpleUploadedFile(filename, buffer.getvalue(), content_type="application/pdf")
 
 
-def make_user(email: str, roles: list[str], editor_status: str | None = None):
+def make_user(email: str, roles: list[str], journal, editor_status: str | None = None):
     user = User.objects.create_user(
         email=email,
         password="testpass123",
         full_name=email.split("@")[0].title(),
-        roles=roles,
         is_email_verified=True,
     )
-    if editor_status:
-        user.editor_status = editor_status
-        user.save(update_fields=["editor_status"])
+    for role in roles:
+        status_ = editor_status if (role == "editor" and editor_status) else MEMBERSHIP_STATUS_APPROVED
+        make_membership(user, journal, role, status=status_)
     return user
 
 
@@ -42,9 +43,11 @@ class JournalIssueWorkflowTest(TestCase):
 
     def setUp(self):
         self.client = APIClient()
-        self.editor = make_user("editor@test.com", ["editor"], editor_status=APPROVAL_APPROVED)
-        self.author = make_user("author@test.com", ["author"])
-        self.topic = TopicArea.objects.create(name="AI", slug="ai")
+        self.journal = make_journal()
+        self.base = f"/api/j/{self.journal.slug}"
+        self.editor = make_user("editor@test.com", ["editor"], self.journal, editor_status=MEMBERSHIP_STATUS_APPROVED)
+        self.author = make_user("author@test.com", ["author"], self.journal)
+        self.topic = TopicArea.objects.create(journal=self.journal, name="AI", slug="ai")
 
     def _login(self, user):
         self.client.force_authenticate(user=user)
@@ -52,6 +55,7 @@ class JournalIssueWorkflowTest(TestCase):
     def _create_accepted_submission(self, title: str, filename: str, pages: int = 1) -> Submission:
         return Submission.objects.create(
             author=self.author,
+            journal=self.journal,
             status=STATUS_ACCEPTED,
             title=title,
             abstract="Abstract",
@@ -66,7 +70,7 @@ class JournalIssueWorkflowTest(TestCase):
         self._login(self.editor)
 
         response = self.client.post(
-            "/api/editor/issues/",
+            f"{self.base}/editor/issues/",
             {
                 "title": "Volume 5 Issue 2",
                 "volume": 5,
@@ -91,7 +95,7 @@ class JournalIssueWorkflowTest(TestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        issue = JournalIssue.objects.get(volume=5, issue_number=2, publication_year=2026)
+        issue = JournalIssue.objects.get(journal=self.journal, volume=5, issue_number=2, publication_year=2026)
         self.assertTrue(bool(issue.full_issue_pdf))
         issue.full_issue_pdf.open("rb")
         try:
@@ -132,7 +136,7 @@ class JournalIssueWorkflowTest(TestCase):
         self._login(self.editor)
 
         response = self.client.post(
-            "/api/editor/issues/",
+            f"{self.base}/editor/issues/",
             {
                 "title": "Volume 6 Issue 1",
                 "volume": 6,
@@ -154,6 +158,7 @@ class JournalIssueWorkflowTest(TestCase):
 
     def test_public_published_issues_endpoints(self):
         issue = JournalIssue.objects.create(
+            journal=self.journal,
             title="Volume 3 Issue 1",
             volume=3,
             issue_number=1,
@@ -162,6 +167,7 @@ class JournalIssueWorkflowTest(TestCase):
         )
         submission = Submission.objects.create(
             author=self.author,
+            journal=self.journal,
             status=STATUS_PUBLISHED,
             title="Published paper",
             abstract="Public abstract",
@@ -174,12 +180,12 @@ class JournalIssueWorkflowTest(TestCase):
             page_end=10,
         )
 
-        list_response = self.client.get("/api/published/issues/")
+        list_response = self.client.get(f"{self.base}/published/issues/")
         self.assertEqual(list_response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(list_response.data), 1)
         self.assertEqual(list_response.data[0]["id"], issue.id)
 
-        detail_response = self.client.get(f"/api/published/issues/{issue.id}/")
+        detail_response = self.client.get(f"{self.base}/published/issues/{issue.id}/")
         self.assertEqual(detail_response.status_code, status.HTTP_200_OK)
         self.assertEqual(detail_response.data["id"], issue.id)
         self.assertEqual(len(detail_response.data["articles"]), 1)
@@ -193,7 +199,7 @@ class JournalIssueWorkflowTest(TestCase):
         submission_2 = self._create_accepted_submission("Second paper", "second.pdf")
 
         create_response = self.client.post(
-            "/api/editor/issues/",
+            f"{self.base}/editor/issues/",
             {
                 "title": "Issue A",
                 "volume": 7,
@@ -214,7 +220,7 @@ class JournalIssueWorkflowTest(TestCase):
         issue_id = create_response.data["id"]
 
         update_response = self.client.put(
-            f"/api/editor/issues/{issue_id}/",
+            f"{self.base}/editor/issues/{issue_id}/",
             {
                 "title": "Issue A Updated",
                 "volume": 7,
@@ -251,6 +257,7 @@ class JournalIssueWorkflowTest(TestCase):
         accepted_submission = self._create_accepted_submission("Accepted one", "accepted.pdf")
         published_submission = Submission.objects.create(
             author=self.author,
+            journal=self.journal,
             status=STATUS_PUBLISHED,
             title="Published one",
             abstract="Abstract",
@@ -259,7 +266,7 @@ class JournalIssueWorkflowTest(TestCase):
             manuscript_pdf=make_pdf_file("published.pdf"),
         )
 
-        response = self.client.get("/api/editor/issues/accepted-submissions/")
+        response = self.client.get(f"{self.base}/editor/issues/accepted-submissions/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         ids = {item["id"] for item in response.data}
@@ -271,6 +278,7 @@ class JournalIssueWorkflowTest(TestCase):
         available_submission = self._create_accepted_submission("Available", "available.pdf")
         assigned_submission = self._create_accepted_submission("Assigned", "assigned.pdf")
         issue = JournalIssue.objects.create(
+            journal=self.journal,
             title="Existing issue",
             volume=11,
             issue_number=1,
@@ -286,7 +294,7 @@ class JournalIssueWorkflowTest(TestCase):
             update_fields=["issue", "issue_order", "page_start", "page_end", "status", "updated_at"]
         )
 
-        response = self.client.get("/api/editor/issues/accepted-submissions/")
+        response = self.client.get(f"{self.base}/editor/issues/accepted-submissions/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         ids = {item["id"] for item in response.data}
@@ -298,7 +306,7 @@ class JournalIssueWorkflowTest(TestCase):
         submission = self._create_accepted_submission("Dated issue paper", "dated.pdf")
 
         response = self.client.post(
-            "/api/editor/issues/",
+            f"{self.base}/editor/issues/",
             {
                 "title": "Dated Issue",
                 "volume": 8,
@@ -327,7 +335,7 @@ class JournalIssueWorkflowTest(TestCase):
         submission_2 = self._create_accepted_submission("Paper B", "b.pdf", pages=4)
 
         response = self.client.post(
-            "/api/editor/issues/",
+            f"{self.base}/editor/issues/",
             {
                 "title": "Auto Pagination Issue",
                 "volume": 9,

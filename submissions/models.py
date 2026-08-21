@@ -6,11 +6,19 @@ from django.db import models
 class TopicArea(models.Model):
     """Topic/field for manuscript categorization (e.g., AI, SWE)."""
 
+    journal = models.ForeignKey(
+        "journals.Journal",
+        on_delete=models.CASCADE,
+        related_name="topic_areas",
+    )
     name = models.CharField(max_length=100)
-    slug = models.SlugField(unique=True)
+    slug = models.SlugField()
 
     class Meta:
         db_table = "submissions_topic_area"
+        constraints = [
+            models.UniqueConstraint(fields=["journal", "slug"], name="uniq_topicarea_journal_slug"),
+        ]
 
     def __str__(self):
         return self.name
@@ -79,6 +87,11 @@ def issue_pdf_upload_path(instance, filename):
 class JournalIssue(models.Model):
     """Published journal issue containing ordered articles."""
 
+    journal = models.ForeignKey(
+        "journals.Journal",
+        on_delete=models.CASCADE,
+        related_name="issues",
+    )
     title = models.CharField(max_length=255)
     volume = models.PositiveIntegerField()
     issue_number = models.PositiveIntegerField()
@@ -95,7 +108,12 @@ class JournalIssue(models.Model):
     class Meta:
         db_table = "submissions_journal_issue"
         ordering = ["-publication_year", "-volume", "-issue_number"]
-        unique_together = [("volume", "issue_number", "publication_year")]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["journal", "volume", "issue_number", "publication_year"],
+                name="uniq_issue_journal_vol_no_year",
+            ),
+        ]
 
     def __str__(self):
         return f"Vol. {self.volume}, Issue {self.issue_number} ({self.publication_year})"
@@ -104,6 +122,11 @@ class JournalIssue(models.Model):
 class Submission(models.Model):
     """Manuscript submission with step-by-step data."""
 
+    journal = models.ForeignKey(
+        "journals.Journal",
+        on_delete=models.CASCADE,
+        related_name="submissions",
+    )
     author = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,

@@ -11,26 +11,30 @@ from notifications.certificates import build_journal_publication_certificate_pdf
 from notifications.models import JournalPublicationCertificate
 from notifications.tasks import send_issue_author_journal_certificate_emails
 from submissions.models import JournalIssue, STATUS_PUBLISHED, Submission, TopicArea
+from tests.helpers import make_journal, make_membership
 
 
-def make_user(email: str, roles: list[str]):
+def make_user(email: str, roles: list[str], journal):
     user = User.objects.create_user(
         email=email,
         password="testpass123",
         full_name=email.split("@")[0].title(),
-        roles=roles,
+        is_email_verified=True,
     )
-    user.is_email_verified = True
-    user.save()
+    for role in roles:
+        make_membership(user, journal, role)
     return user
 
 
 class JournalCertificateTaskTest(TestCase):
     def setUp(self):
         self.client = APIClient()
-        self.author = make_user("author_journal@test.com", ["author"])
-        self.topic = TopicArea.objects.create(name="AI", slug="ai")
+        self.journal = make_journal()
+        self.base = f"/api/j/{self.journal.slug}"
+        self.author = make_user("author_journal@test.com", ["author"], self.journal)
+        self.topic = TopicArea.objects.create(journal=self.journal, name="AI", slug="ai")
         self.issue = JournalIssue.objects.create(
+            journal=self.journal,
             title="Volume 4, Issue 2 (2026)",
             volume=4,
             issue_number=2,
@@ -39,6 +43,7 @@ class JournalCertificateTaskTest(TestCase):
         )
         self.submission = Submission.objects.create(
             author=self.author,
+            journal=self.journal,
             status=STATUS_PUBLISHED,
             title="AI for Smart Editorial Workflow",
             abstract="Abstract",
@@ -102,7 +107,7 @@ class JournalCertificateTaskTest(TestCase):
         task_result = send_issue_author_journal_certificate_emails(self.issue.id)
         self.client.force_authenticate(user=self.author)
 
-        response = self.client.get("/api/submissions/")
+        response = self.client.get(f"{self.base}/submissions/")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.data), 1)
         self.assertIn("journal_certificates", response.data[0])
@@ -119,14 +124,14 @@ class JournalCertificateTaskTest(TestCase):
             author=self.author,
         )
 
-        detail = self.client.get(f"/api/certificates/journal/public/{certificate.verification_code}/")
+        detail = self.client.get(f"{self.base}/certificates/journal/public/{certificate.verification_code}/")
         self.assertEqual(detail.status_code, 200)
         self.assertEqual(detail.data["submission_id"], self.submission.id)
 
-        pdf = self.client.get(f"/api/certificates/journal/public/{certificate.verification_code}/pdf/")
+        pdf = self.client.get(f"{self.base}/certificates/journal/public/{certificate.verification_code}/pdf/")
         self.assertEqual(pdf.status_code, 200)
         self.assertEqual(pdf["Content-Type"], "application/pdf")
 
-        qr = self.client.get(f"/api/certificates/journal/public/{certificate.verification_code}/qr.svg")
+        qr = self.client.get(f"{self.base}/certificates/journal/public/{certificate.verification_code}/qr.svg")
         self.assertEqual(qr.status_code, 200)
         self.assertEqual(qr["Content-Type"], "image/svg+xml")

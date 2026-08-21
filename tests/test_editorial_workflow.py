@@ -6,23 +6,27 @@ from django.test import TestCase
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from accounts.models import APPROVAL_APPROVED, User
+from accounts.models import User
+from journals.models import MEMBERSHIP_STATUS_APPROVED
 from reviews.models import RECOMMENDATION_ACCEPT, Review, ReviewAssignment, STATUS_ACCEPTED
 from submissions.models import DOI_STATUS_PENDING, STATUS_DESK_REJECTED, STATUS_SCREENING, STATUS_SUBMITTED, Submission, SubmissionVersion, TopicArea
+from tests.helpers import make_journal, make_membership
+
+_email_counter = [0]
 
 
-def make_user(roles, editor_status=None):
+def make_user(roles, journal, editor_status=None):
     """Create user with editor approval."""
+    _email_counter[0] += 1
     user = User.objects.create_user(
-        email=f"editor_{id(roles)}@test.com",
+        email=f"editor_{_email_counter[0]}@test.com",
         password="testpass123",
         full_name="Editor",
-        roles=roles,
         is_email_verified=True,
     )
-    if editor_status:
-        user.editor_status = editor_status
-        user.save()
+    for role in roles:
+        status_ = editor_status if (role == "editor" and editor_status) else MEMBERSHIP_STATUS_APPROVED
+        make_membership(user, journal, role, status=status_)
     return user
 
 
@@ -31,12 +35,15 @@ class EditorialWorkflowTest(TestCase):
 
     def setUp(self):
         self.client = APIClient()
-        self.editor = make_user(["editor"], editor_status=APPROVAL_APPROVED)
-        self.author = make_user(["author"])
-        self.topic = TopicArea.objects.create(name="AI", slug="ai")
+        self.journal = make_journal()
+        self.base = f"/api/j/{self.journal.slug}"
+        self.editor = make_user(["editor"], self.journal, editor_status=MEMBERSHIP_STATUS_APPROVED)
+        self.author = make_user(["author"], self.journal)
+        self.topic = TopicArea.objects.create(journal=self.journal, name="AI", slug="ai")
 
         self.submission = Submission.objects.create(
             author=self.author,
+            journal=self.journal,
             status=STATUS_SUBMITTED,
             title="Paper",
             abstract="Abstract",
@@ -56,7 +63,7 @@ class EditorialWorkflowTest(TestCase):
 
     def test_start_screening(self):
         self._login(self.editor)
-        resp = self.client.post(f"/api/editor/submissions/{self.submission.id}/start-screening/")
+        resp = self.client.post(f"{self.base}/editor/submissions/{self.submission.id}/start-screening/")
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         self.submission.refresh_from_db()
         self.assertEqual(self.submission.status, STATUS_SCREENING)
@@ -66,7 +73,7 @@ class EditorialWorkflowTest(TestCase):
         self.submission.save()
         self._login(self.editor)
         resp = self.client.post(
-            f"/api/editor/submissions/{self.submission.id}/desk-reject/",
+            f"{self.base}/editor/submissions/{self.submission.id}/desk-reject/",
             {"reason": "Out of scope"},
             format="json",
         )
@@ -96,7 +103,7 @@ class EditorialWorkflowTest(TestCase):
         with patch("notifications.tasks.send_author_reviewer_recognition_certificate.delay") as mock_delay:
             with self.captureOnCommitCallbacks(execute=True):
                 resp = self.client.post(
-                    f"/api/editor/submissions/{self.submission.id}/decision/",
+                    f"{self.base}/editor/submissions/{self.submission.id}/decision/",
                     {"decision": "accept", "decision_letter": "We are pleased to accept."},
                     format="json",
                 )
@@ -125,7 +132,7 @@ class EditorialWorkflowTest(TestCase):
         self._login(self.editor)
         with patch("notifications.tasks.send_author_reviewer_recognition_certificate.delay") as mock_delay:
             resp = self.client.post(
-                f"/api/editor/submissions/{self.submission.id}/decision/",
+                f"{self.base}/editor/submissions/{self.submission.id}/decision/",
                 {"decision": "reject", "decision_letter": "Not accepted at this stage."},
                 format="json",
             )
@@ -138,7 +145,7 @@ class EditorialWorkflowTest(TestCase):
         self.submission.status = "accepted"
         self.submission.save()
         self._login(self.editor)
-        resp = self.client.post(f"/api/editor/submissions/{self.submission.id}/publish/")
+        resp = self.client.post(f"{self.base}/editor/submissions/{self.submission.id}/publish/")
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         self.submission.refresh_from_db()
         self.assertEqual(self.submission.status, "published")
@@ -150,7 +157,7 @@ class EditorialWorkflowTest(TestCase):
         self.submission.save(update_fields=["status"])
 
         self._login(self.editor)
-        resp = self.client.post(f"/api/editor/submissions/{self.submission.id}/generate-doi/")
+        resp = self.client.post(f"{self.base}/editor/submissions/{self.submission.id}/generate-doi/")
 
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         self.assertIn("doi", resp.data)
@@ -165,5 +172,5 @@ class EditorialWorkflowTest(TestCase):
         self.submission.save(update_fields=["status"])
 
         self._login(self.editor)
-        resp = self.client.post(f"/api/editor/submissions/{self.submission.id}/generate-doi/")
+        resp = self.client.post(f"{self.base}/editor/submissions/{self.submission.id}/generate-doi/")
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)

@@ -29,7 +29,7 @@ class ReviewAssignmentViewSet(viewsets.ReadOnlyModelViewSet):
         user = self.request.user
         return (
             ReviewAssignment.objects
-            .filter(reviewer=user)
+            .filter(reviewer=user, submission__journal=self.request.journal)
             .select_related("submission", "submission_version")
         )
 
@@ -42,7 +42,7 @@ class ReviewAssignmentViewSet(viewsets.ReadOnlyModelViewSet):
         return super().retrieve(request, *args, **kwargs)
 
     @action(detail=True, methods=["post"], url_path="accept")
-    def accept(self, request, pk=None):
+    def accept(self, request, pk=None, **kwargs):
         """POST /api/reviewer/assignments/{id}/accept - Accept invitation."""
         assignment = self.get_object()
         if assignment.status != STATUS_INVITED:
@@ -58,14 +58,14 @@ class ReviewAssignmentViewSet(viewsets.ReadOnlyModelViewSet):
         log(actor_user=request.user, action_type="reviewer_accepted", target_type="review_assignment", target_id=assignment.id, old_value={"status": STATUS_INVITED}, new_value={"status": STATUS_ACCEPTED})
         from editorial.utils import get_editor_emails
         from notifications.services import queue_reviewer_accepted
-        editor_emails = get_editor_emails()
+        editor_emails = get_editor_emails(assignment.submission.journal)
         if editor_emails:
-            queue_reviewer_accepted(assignment.id, editor_emails, assignment.submission.title or "Untitled")
+            queue_reviewer_accepted(assignment.id, editor_emails, assignment.submission.title or "Untitled", journal_name=assignment.submission.journal.name)
         serializer = self.get_serializer(assignment)
         return Response(serializer.data)
 
     @action(detail=True, methods=["post"], url_path="decline")
-    def decline(self, request, pk=None):
+    def decline(self, request, pk=None, **kwargs):
         """POST /api/reviewer/assignments/{id}/decline - Decline invitation."""
         assignment = self.get_object()
         if assignment.status != STATUS_INVITED:
@@ -81,14 +81,14 @@ class ReviewAssignmentViewSet(viewsets.ReadOnlyModelViewSet):
         log(actor_user=request.user, action_type="reviewer_declined", target_type="review_assignment", target_id=assignment.id, old_value={"status": STATUS_INVITED}, new_value={"status": STATUS_DECLINED})
         from editorial.utils import get_editor_emails
         from notifications.services import queue_reviewer_declined
-        editor_emails = get_editor_emails()
+        editor_emails = get_editor_emails(assignment.submission.journal)
         if editor_emails:
-            queue_reviewer_declined(assignment.id, editor_emails, assignment.submission.title or "Untitled")
+            queue_reviewer_declined(assignment.id, editor_emails, assignment.submission.title or "Untitled", journal_name=assignment.submission.journal.name)
         serializer = self.get_serializer(assignment)
         return Response(serializer.data)
 
     @action(detail=True, methods=["post"], url_path="submit-review")
-    def submit_review(self, request, pk=None):
+    def submit_review(self, request, pk=None, **kwargs):
         """POST /api/reviewer/assignments/{id}/submit-review - Submit structured review."""
         assignment = self.get_object()
         if assignment.status != STATUS_ACCEPTED:
@@ -115,9 +115,9 @@ class ReviewAssignmentViewSet(viewsets.ReadOnlyModelViewSet):
         log(actor_user=request.user, action_type="review_submitted", target_type="review_assignment", target_id=assignment.id, new_value={"submission_id": assignment.submission_id})
         from editorial.utils import get_editor_emails
         from notifications.services import queue_review_submitted
-        editor_emails = get_editor_emails()
+        editor_emails = get_editor_emails(assignment.submission.journal)
         if editor_emails:
-            queue_review_submitted(assignment.submission_id, editor_emails, assignment.submission.title or "Untitled")
+            queue_review_submitted(assignment.submission_id, editor_emails, assignment.submission.title or "Untitled", journal_name=assignment.submission.journal.name)
 
         out_serializer = self.get_serializer(assignment)
         return Response(out_serializer.data)
@@ -128,7 +128,7 @@ class AcceptByTokenView(viewsets.ViewSet):
 
     permission_classes = [IsAuthenticated, IsApprovedReviewer]
 
-    def list(self, request):
+    def list(self, request, **kwargs):
         """GET /api/reviewer/accept-by-token/?token=xxx - Get assignment info by token."""
         token = request.query_params.get("token")
         if not token:
@@ -144,7 +144,7 @@ class AcceptByTokenView(viewsets.ViewSet):
         serializer = ReviewAssignmentSerializer(assignment, context={"request": request})
         return Response(serializer.data)
 
-    def create(self, request):
+    def create(self, request, **kwargs):
         """POST /api/reviewer/accept-by-token - Accept by token, linking to current user."""
         token = request.data.get("token")
         if not token:
@@ -167,9 +167,9 @@ class AcceptByTokenView(viewsets.ViewSet):
         log(actor_user=request.user, action_type="reviewer_accepted", target_type="review_assignment", target_id=assignment.id, old_value={"status": STATUS_INVITED}, new_value={"status": STATUS_ACCEPTED})
         from editorial.utils import get_editor_emails
         from notifications.services import queue_reviewer_accepted
-        editor_emails = get_editor_emails()
+        editor_emails = get_editor_emails(assignment.submission.journal)
         if editor_emails:
-            queue_reviewer_accepted(assignment.id, editor_emails, assignment.submission.title or "Untitled")
+            queue_reviewer_accepted(assignment.id, editor_emails, assignment.submission.title or "Untitled", journal_name=assignment.submission.journal.name)
 
         serializer = ReviewAssignmentSerializer(assignment, context={"request": request})
         return Response(serializer.data)
@@ -180,7 +180,7 @@ class DeclineByTokenView(viewsets.ViewSet):
 
     permission_classes = [IsAuthenticated, IsApprovedReviewer]
 
-    def create(self, request):
+    def create(self, request, **kwargs):
         """POST /api/reviewer/decline-by-token - Decline by token, linking to current user."""
         token = request.data.get("token")
         if not token:
@@ -203,9 +203,9 @@ class DeclineByTokenView(viewsets.ViewSet):
         log(actor_user=request.user, action_type="reviewer_declined", target_type="review_assignment", target_id=assignment.id, old_value={"status": STATUS_INVITED}, new_value={"status": STATUS_DECLINED})
         from editorial.utils import get_editor_emails
         from notifications.services import queue_reviewer_declined
-        editor_emails = get_editor_emails()
+        editor_emails = get_editor_emails(assignment.submission.journal)
         if editor_emails:
-            queue_reviewer_declined(assignment.id, editor_emails, assignment.submission.title or "Untitled")
+            queue_reviewer_declined(assignment.id, editor_emails, assignment.submission.title or "Untitled", journal_name=assignment.submission.journal.name)
 
         serializer = ReviewAssignmentSerializer(assignment, context={"request": request})
         return Response(serializer.data)

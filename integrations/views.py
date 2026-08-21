@@ -16,7 +16,7 @@ class UploadFileView(APIView):
     permission_classes = [IsAuthenticated, IsEmailVerified]
     parser_classes = [MultiPartParser, FormParser]
 
-    def post(self, request):
+    def post(self, request, **kwargs):
         file_obj = request.FILES.get("file")
         if not file_obj:
             return Response(

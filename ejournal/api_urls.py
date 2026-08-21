@@ -11,11 +11,6 @@ def api_root(request):
 urlpatterns = [
     path("", api_root),
     path("", include("accounts.urls")),
-    path("", include("integrations.urls")),
-    path("", include("submissions.urls")),
-    path("certificates/", include("notifications.urls")),
-    path("reviewer/", include("reviews.urls")),
-    path("editor/", include("editorial.urls")),
-    path("editorial-board/", include("editorial_board.urls")),
-    path("admin/", include("accounts.admin_urls")),
+    path("j/<slug:journal_slug>/", include("ejournal.journal_urls")),
+    path("journals/", include("journals.urls")),
 ]

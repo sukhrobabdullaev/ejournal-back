@@ -14,7 +14,6 @@ class OrcidProfileApiTest(TestCase):
             email="author@test.com",
             password="testpass123",
             full_name="Author User",
-            roles=["author"],
         )
         self.client.force_authenticate(user=self.user)
 

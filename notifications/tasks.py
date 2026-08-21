@@ -101,6 +101,7 @@ def send_notification_email(
 
     try:
         html_message = None
+        journal_name = payload.get("journal_name") if isinstance(payload, dict) else None
         try:
             from .email_html import render_account_notification_html, wrap_email_html
             if event_type in {"email_verification", "profile_updated"}:
@@ -117,15 +118,22 @@ def send_notification_email(
                     )
                     if isinstance(payload, dict)
                     else None,
+                    journal_name=journal_name,
                 )
             else:
-                html_message = wrap_email_html(subject, body)
+                html_message = wrap_email_html(subject, body, journal_name=journal_name)
         except Exception:
             # Keep sending plain text even if HTML template code has issues.
             logger.exception("Failed to render HTML email; sending plain text")
 
+        from_email = None
+        if journal_name:
+            from email.utils import formataddr
+            from .sender import get_sender_email
+            from_email = formataddr((journal_name, get_sender_email()))
+
         backend = get_email_backend()
-        provider_msg_id = backend.send(to_email, subject, body, html_message=html_message)
+        provider_msg_id = backend.send(to_email, subject, body, html_message=html_message, from_email=from_email)
         email_log.status = STATUS_SENT
         email_log.provider_message_id = provider_msg_id or ""
         email_log.save()
@@ -196,7 +204,7 @@ def send_author_reviewer_recognition_certificate(self, review_id: int):
     review = (
         Review.objects
         .filter(id=review_id)
-        .select_related("assignment__submission__author", "assignment__reviewer")
+        .select_related("assignment__submission__author", "assignment__submission__journal", "assignment__reviewer")
         .first()
     )
     if not review:
@@ -204,6 +212,7 @@ def send_author_reviewer_recognition_certificate(self, review_id: int):
 
     assignment = review.assignment
     submission = assignment.submission
+    journal = submission.journal
     if submission.editorial_decision != "accept" or submission.status != STATUS_ACCEPTED:
         return {"status": "skipped", "reason": "editor_decision_not_accept"}
 
@@ -275,6 +284,7 @@ def send_author_reviewer_recognition_certificate(self, review_id: int):
         verification_url=certificate_page_url,
         reviewer_comment=reviewer_comment,
         editor_comment=editor_comment,
+        journal_name=journal.name,
     )
 
     subject = "Reviewer Recognition Certificate"
@@ -286,7 +296,7 @@ def send_author_reviewer_recognition_certificate(self, review_id: int):
         f"Certificate page: {certificate_page_url}\n\n"
         "Please find the reviewer recognition certificate attached as PDF.\n\n"
         "Best regards,\n"
-        "Ditech Asia Editorial Team"
+        f"{journal.effective_from_name} Editorial Team"
     )
     filename = f"reviewer-recognition-{certificate.verification_code}.pdf"
 
@@ -301,7 +311,7 @@ def send_author_reviewer_recognition_certificate(self, review_id: int):
         html_message = None
         try:
             from .email_html import wrap_email_html
-            html_message = wrap_email_html(subject, body)
+            html_message = wrap_email_html(subject, body, journal_name=journal.name)
         except Exception:
             logger.exception("Failed to render HTML email for reviewer certificate")
 
@@ -310,7 +320,7 @@ def send_author_reviewer_recognition_certificate(self, review_id: int):
             to_email=to_email,
             subject=subject,
             body=body,
-            from_email=get_sender_header(),
+            from_email=get_sender_header(journal),
             html_message=html_message,
             attachments=[
                 {
@@ -358,6 +368,7 @@ def send_issue_author_journal_certificate_emails(self, issue_id: int):
     issue = (
         JournalIssue.objects
         .filter(id=issue_id)
+        .select_related("journal")
         .prefetch_related("articles__author")
         .first()
     )
@@ -453,6 +464,7 @@ def send_issue_author_journal_certificate_emails(self, issue_id: int):
             author_affiliation=getattr(author, "affiliation", "") or "",
             author_country=getattr(author, "country", "") or "",
             certificate_code=str(certificate.verification_code),
+            journal_name=issue.journal.name,
         )
 
         publication_label = (
@@ -474,7 +486,7 @@ def send_issue_author_journal_certificate_emails(self, issue_id: int):
         body = (
             f"Dear {certificate.author_full_name},\n\n"
             "Your article has been included in a published journal issue.\n\n"
-            f"Journal: {getattr(settings, 'JOURNAL_NAME', 'Ditech Asia')}\n"
+            f"Journal: {issue.journal.name}\n"
             f"Issue: Volume {issue.volume}, Issue {issue.issue_number}\n"
             f"Publication date: {publication_label}\n"
             f"Article: {certificate.article_title}\n\n"
@@ -482,7 +494,7 @@ def send_issue_author_journal_certificate_emails(self, issue_id: int):
             f"{scholar_line}\n\n"
             "Please find your Journal Certificate attached as PDF.\n\n"
             "Best regards,\n"
-            "Ditech Asia Editorial Team"
+            f"{issue.journal.effective_from_name} Editorial Team"
         )
 
         filename = f"journal-certificate-{certificate.verification_code}.pdf"
@@ -500,7 +512,7 @@ def send_issue_author_journal_certificate_emails(self, issue_id: int):
             html_message = build_journal_certificate_email_html(
                 subject=subject,
                 author_name=certificate.author_full_name,
-                journal_name=getattr(settings, "JOURNAL_NAME", "Ditech Asia"),
+                journal_name=issue.journal.name,
                 volume=issue.volume,
                 issue_number=issue.issue_number,
                 publication_date=publication_label,
@@ -514,7 +526,7 @@ def send_issue_author_journal_certificate_emails(self, issue_id: int):
                 to_email=to_email,
                 subject=subject,
                 body=body,
-                from_email=get_sender_header(),
+                from_email=get_sender_header(issue.journal),
                 html_message=html_message,
                 attachments=[
                     {

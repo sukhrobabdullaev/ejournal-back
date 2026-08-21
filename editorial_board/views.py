@@ -13,7 +13,7 @@ class EditorialBoardViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = EditorialBoardMemberSerializer
 
     def get_queryset(self):
-        qs = EditorialBoardMember.objects.filter(is_active=True)
+        qs = EditorialBoardMember.objects.filter(is_active=True, journal=self.request.journal)
         role = self.request.query_params.get("role")
         if role in (ROLE_EDITOR_IN_CHIEF, ROLE_MANAGING_EDITOR, ROLE_ASSOCIATE_EDITOR):
             qs = qs.filter(role=role)

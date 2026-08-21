@@ -6,29 +6,32 @@ from rest_framework.test import APIClient
 
 from accounts.models import User
 from submissions.models import Submission, TopicArea
+from tests.helpers import make_journal, make_membership
 
 
-def make_author():
+def make_author(journal):
     """Create author user."""
-    return User.objects.create_user(
+    user = User.objects.create_user(
         email="author@test.com",
         password="testpass123",
         full_name="Author",
-        roles=["author"],
         is_email_verified=True,
         orcid_id="0000-0002-1234-5678",
         google_scholar_url="https://scholar.google.com/citations?user=AUTHOR123",
     )
+    make_membership(user, journal, "author")
+    return user
 
-def make_reviewer():
+def make_reviewer(journal):
     """Create reviewer-only user."""
-    return User.objects.create_user(
+    user = User.objects.create_user(
         email="reviewer_only@test.com",
         password="testpass123",
         full_name="Reviewer Only",
-        roles=["reviewer"],
         is_email_verified=True,
     )
+    make_membership(user, journal, "reviewer")
+    return user
 
 
 class SubmissionWorkflowTest(TestCase):
@@ -36,33 +39,35 @@ class SubmissionWorkflowTest(TestCase):
 
     def setUp(self):
         self.client = APIClient()
-        self.author = make_author()
-        self.reviewer = make_reviewer()
-        self.topic = TopicArea.objects.create(name="AI", slug="ai")
+        self.journal = make_journal()
+        self.author = make_author(self.journal)
+        self.reviewer = make_reviewer(self.journal)
+        self.topic = TopicArea.objects.create(journal=self.journal, name="AI", slug="ai")
+        self.base = f"/api/j/{self.journal.slug}"
 
     def _login(self, user):
         self.client.force_authenticate(user=user)
 
     def test_create_submission_defaults_to_submitted(self):
         self._login(self.author)
-        resp = self.client.post("/api/submissions/", {})
+        resp = self.client.post(f"{self.base}/submissions/", {})
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
         self.assertEqual(resp.data["status"], "submitted")
         self.assertEqual(Submission.objects.filter(author=self.author).count(), 1)
 
     def test_submit_without_required_fields_fails(self):
         self._login(self.author)
-        resp = self.client.post("/api/submissions/", {})
+        resp = self.client.post(f"{self.base}/submissions/", {})
         sub_id = resp.data["id"]
-        resp = self.client.post(f"/api/submissions/{sub_id}/submit/")
+        resp = self.client.post(f"{self.base}/submissions/{sub_id}/submit/")
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_patch_partial_save(self):
         self._login(self.author)
-        resp = self.client.post("/api/submissions/", {})
+        resp = self.client.post(f"{self.base}/submissions/", {})
         sub_id = resp.data["id"]
         resp = self.client.patch(
-            f"/api/submissions/{sub_id}/",
+            f"{self.base}/submissions/{sub_id}/",
             {"title": "My Paper", "abstract": "Abstract here", "keywords": ["a", "b", "c"], "topic_area_id": self.topic.id},
             format="json",
         )
@@ -71,7 +76,7 @@ class SubmissionWorkflowTest(TestCase):
 
     def test_submit_requires_agreements(self):
         self._login(self.author)
-        resp = self.client.post("/api/submissions/", {})
+        resp = self.client.post(f"{self.base}/submissions/", {})
         sub_id = resp.data["id"]
         Submission.objects.filter(id=sub_id).update(
             title="Title",
@@ -83,12 +88,12 @@ class SubmissionWorkflowTest(TestCase):
             ethics_compliance=False,  # Missing
             copyright_agreement=True,
         )
-        resp = self.client.post(f"/api/submissions/{sub_id}/submit/")
+        resp = self.client.post(f"{self.base}/submissions/{sub_id}/submit/")
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_non_author_cannot_create_submission(self):
         self._login(self.reviewer)
-        resp = self.client.post("/api/submissions/", {})
+        resp = self.client.post(f"{self.base}/submissions/", {})
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_submit_requires_author_orcid_profile(self):
@@ -97,6 +102,7 @@ class SubmissionWorkflowTest(TestCase):
 
         submission = Submission.objects.create(
             author=self.author,
+            journal=self.journal,
             status="submitted",
             title="Profile check",
             abstract="Abstract",
@@ -110,7 +116,7 @@ class SubmissionWorkflowTest(TestCase):
         )
 
         self._login(self.author)
-        resp = self.client.post(f"/api/submissions/{submission.id}/submit/")
+        resp = self.client.post(f"{self.base}/submissions/{submission.id}/submit/")
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("ORCID", str(resp.data))
 
@@ -120,6 +126,7 @@ class SubmissionWorkflowTest(TestCase):
 
         submission = Submission.objects.create(
             author=self.author,
+            journal=self.journal,
             status="submitted",
             title="Scholar check",
             abstract="Abstract",
@@ -133,5 +140,5 @@ class SubmissionWorkflowTest(TestCase):
         )
 
         self._login(self.author)
-        resp = self.client.post(f"/api/submissions/{submission.id}/submit/")
+        resp = self.client.post(f"{self.base}/submissions/{submission.id}/submit/")
         self.assertEqual(resp.status_code, status.HTTP_200_OK)

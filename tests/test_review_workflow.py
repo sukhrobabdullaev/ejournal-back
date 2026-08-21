@@ -5,26 +5,31 @@ from django.test import TestCase
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from accounts.models import APPROVAL_APPROVED, User
+from accounts.models import User
+from journals.models import MEMBERSHIP_STATUS_APPROVED
 from reviews.models import Review, ReviewAssignment, STATUS_ACCEPTED, STATUS_INVITED, STATUS_REVIEW_SUBMITTED
 from submissions.models import Submission, SubmissionVersion, TopicArea
+from tests.helpers import make_journal, make_membership
+
+_email_counter = [0]
 
 
-def make_user(roles, reviewer_status=None, editor_status=None):
+def make_user(roles, journal, reviewer_status=None, editor_status=None):
     """Create user with roles and approval."""
-    role_str = "_".join(roles)
+    _email_counter[0] += 1
     user = User.objects.create_user(
-        email=f"user_{role_str}_{id(roles)}@test.com",
+        email=f"user_{_email_counter[0]}@test.com",
         password="testpass123",
         full_name="User",
-        roles=roles,
+        is_email_verified=True,
     )
-    if reviewer_status:
-        user.reviewer_status = reviewer_status
-    if editor_status:
-        user.editor_status = editor_status
-    user.is_email_verified = True
-    user.save()
+    for role in roles:
+        status_ = MEMBERSHIP_STATUS_APPROVED
+        if role == "reviewer" and reviewer_status:
+            status_ = reviewer_status
+        if role == "editor" and editor_status:
+            status_ = editor_status
+        make_membership(user, journal, role, status=status_)
     return user
 
 
@@ -33,13 +38,16 @@ class ReviewWorkflowTest(TestCase):
 
     def setUp(self):
         self.client = APIClient()
-        self.editor = make_user(["editor"], editor_status=APPROVAL_APPROVED)
-        self.reviewer = make_user(["reviewer"], reviewer_status=APPROVAL_APPROVED)
-        self.author = make_user(["author"])
-        self.topic = TopicArea.objects.create(name="AI", slug="ai")
+        self.journal = make_journal()
+        self.base = f"/api/j/{self.journal.slug}"
+        self.editor = make_user(["editor"], self.journal, editor_status=MEMBERSHIP_STATUS_APPROVED)
+        self.reviewer = make_user(["reviewer"], self.journal, reviewer_status=MEMBERSHIP_STATUS_APPROVED)
+        self.author = make_user(["author"], self.journal)
+        self.topic = TopicArea.objects.create(journal=self.journal, name="AI", slug="ai")
 
         self.submission = Submission.objects.create(
             author=self.author,
+            journal=self.journal,
             status="under_review",
             title="Paper",
             abstract="Abstract",
@@ -60,7 +68,7 @@ class ReviewWorkflowTest(TestCase):
     def test_invite_reviewer(self):
         self._login(self.editor)
         resp = self.client.post(
-            f"/api/editor/submissions/{self.submission.id}/invite-reviewer/",
+            f"{self.base}/editor/submissions/{self.submission.id}/invite-reviewer/",
             {"reviewer_user_id": self.reviewer.id},
             format="json",
         )
@@ -79,7 +87,7 @@ class ReviewWorkflowTest(TestCase):
             status=STATUS_INVITED,
         )
         self._login(self.reviewer)
-        resp = self.client.post(f"/api/reviewer/assignments/{assign.id}/accept/")
+        resp = self.client.post(f"{self.base}/reviewer/assignments/{assign.id}/accept/")
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         assign.refresh_from_db()
         self.assertEqual(assign.status, STATUS_ACCEPTED)
@@ -94,7 +102,7 @@ class ReviewWorkflowTest(TestCase):
         )
         self._login(self.reviewer)
         resp = self.client.post(
-            f"/api/reviewer/assignments/{assign.id}/submit-review/",
+            f"{self.base}/reviewer/assignments/{assign.id}/submit-review/",
             {
                 "summary": "Good paper",
                 "strengths": "Clear",
@@ -118,7 +126,7 @@ class ReviewWorkflowTest(TestCase):
         )
         self._login(self.reviewer)
         resp = self.client.post(
-            f"/api/reviewer/assignments/{assign.id}/submit-review/",
+            f"{self.base}/reviewer/assignments/{assign.id}/submit-review/",
             {
                 "summary": "Needs work",
                 "strengths": "Topic is relevant",

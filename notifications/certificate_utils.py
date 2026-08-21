@@ -45,28 +45,28 @@ def build_frontend_review_invite_url(token) -> str:
     return f"{base}/review/invite/{token}"
 
 
-def build_certificate_public_api_path(code) -> str:
-    return reverse("certificate-public-detail", kwargs={"code": str(code)})
+def build_certificate_public_api_path(code, journal_slug) -> str:
+    return reverse("certificate-public-detail", kwargs={"journal_slug": journal_slug, "code": str(code)})
 
 
-def build_certificate_pdf_api_path(code) -> str:
-    return reverse("certificate-public-pdf", kwargs={"code": str(code)})
+def build_certificate_pdf_api_path(code, journal_slug) -> str:
+    return reverse("certificate-public-pdf", kwargs={"journal_slug": journal_slug, "code": str(code)})
 
 
-def build_certificate_qr_api_path(code) -> str:
-    return reverse("certificate-public-qr", kwargs={"code": str(code)})
+def build_certificate_qr_api_path(code, journal_slug) -> str:
+    return reverse("certificate-public-qr", kwargs={"journal_slug": journal_slug, "code": str(code)})
 
 
-def build_journal_certificate_public_api_path(code) -> str:
-    return reverse("journal-certificate-public-detail", kwargs={"code": str(code)})
+def build_journal_certificate_public_api_path(code, journal_slug) -> str:
+    return reverse("journal-certificate-public-detail", kwargs={"journal_slug": journal_slug, "code": str(code)})
 
 
-def build_journal_certificate_pdf_api_path(code) -> str:
-    return reverse("journal-certificate-public-pdf", kwargs={"code": str(code)})
+def build_journal_certificate_pdf_api_path(code, journal_slug) -> str:
+    return reverse("journal-certificate-public-pdf", kwargs={"journal_slug": journal_slug, "code": str(code)})
 
 
-def build_journal_certificate_qr_api_path(code) -> str:
-    return reverse("journal-certificate-public-qr", kwargs={"code": str(code)})
+def build_journal_certificate_qr_api_path(code, journal_slug) -> str:
+    return reverse("journal-certificate-public-qr", kwargs={"journal_slug": journal_slug, "code": str(code)})
 
 
 def build_absolute_url(request, path: str) -> str:

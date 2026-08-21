@@ -4,14 +4,14 @@ from urllib.parse import urlparse
 
 from rest_framework import serializers
 
-from .models import (
-    ROLE_CHOICES,
-    APPROVAL_PENDING,
-    ROLE_AUTHOR,
-    ROLE_EDITOR,
-    ROLE_REVIEWER,
-    User,
+from journals.models import (
+    MEMBERSHIP_STATUS_APPROVED,
+    MEMBERSHIP_STATUS_PENDING,
+    Journal,
+    JournalMembership,
 )
+
+from .models import ROLE_CHOICES, ROLE_EDITOR, ROLE_REVIEWER, User
 
 
 class SignupSerializer(serializers.Serializer):
@@ -22,6 +22,9 @@ class SignupSerializer(serializers.Serializer):
     full_name = serializers.CharField(max_length=255)
     affiliation = serializers.CharField(max_length=255, required=False, allow_blank=True)
     country = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    journal_slug = serializers.SlugField(
+        help_text="The journal the requested roles apply to.",
+    )
     roles = serializers.ListField(
         child=serializers.ChoiceField(choices=ROLE_CHOICES),
         allow_empty=False,
@@ -37,6 +40,11 @@ class SignupSerializer(serializers.Serializer):
             seen.add(r)
         return value
 
+    def validate_journal_slug(self, value):
+        if not Journal.objects.filter(slug=value, is_active=True).exists():
+            raise serializers.ValidationError("Unknown journal.")
+        return value
+
     def validate(self, attrs):
         """Require why_to_be when reviewer or editor selected."""
         roles = attrs.get("roles", [])
@@ -49,16 +57,10 @@ class SignupSerializer(serializers.Serializer):
         return attrs
 
     def create(self, validated_data):
-        """Create user with role approval logic."""
+        """Create user, then create per-journal role membership rows."""
         roles = validated_data["roles"]
         why_to_be = validated_data.pop("why_to_be", "")
-
-        reviewer_status = None
-        editor_status = None
-        if ROLE_REVIEWER in roles:
-            reviewer_status = APPROVAL_PENDING
-        if ROLE_EDITOR in roles:
-            editor_status = APPROVAL_PENDING
+        journal = Journal.objects.get(slug=validated_data["journal_slug"])
 
         user = User.objects.create_user(
             email=validated_data["email"],
@@ -66,18 +68,40 @@ class SignupSerializer(serializers.Serializer):
             full_name=validated_data["full_name"],
             affiliation=validated_data.get("affiliation", ""),
             country=validated_data.get("country", ""),
-            roles=roles,
-            reviewer_status=reviewer_status,
-            editor_status=editor_status,
-            why_to_be=why_to_be,
         )
+
+        for role in roles:
+            status = MEMBERSHIP_STATUS_APPROVED if role == "author" else MEMBERSHIP_STATUS_PENDING
+            JournalMembership.objects.create(
+                user=user,
+                journal=journal,
+                role=role,
+                status=status,
+                why_to_be=why_to_be,
+            )
+
         return user
+
+
+class JournalMembershipSummarySerializer(serializers.ModelSerializer):
+    """Compact membership summary embedded in the /me response."""
+
+    journal_slug = serializers.CharField(source="journal.slug", read_only=True)
+    journal_name = serializers.CharField(source="journal.name", read_only=True)
+
+    class Meta:
+        model = JournalMembership
+        fields = ["journal_slug", "journal_name", "role", "status"]
 
 
 class UserSerializer(serializers.ModelSerializer):
     """Serializer for user profile (GET/PATCH /api/me)."""
 
     ORCID_PATTERN = re.compile(r"^\d{4}-\d{4}-\d{4}-\d{4}$")
+
+    memberships = JournalMembershipSummarySerializer(
+        source="journal_memberships", many=True, read_only=True
+    )
 
     def validate_google_scholar_url(self, value):
         """Accept only full Google Scholar profile/citation URLs."""
@@ -126,9 +150,7 @@ class UserSerializer(serializers.ModelSerializer):
             "orcid_id",
             "google_scholar_url",
             "is_email_verified",
-            "roles",
-            "reviewer_status",
-            "editor_status",
+            "memberships",
             "date_joined",
         ]
-        read_only_fields = ["id", "email", "roles", "reviewer_status", "editor_status", "date_joined"]
+        read_only_fields = ["id", "email", "memberships", "date_joined"]

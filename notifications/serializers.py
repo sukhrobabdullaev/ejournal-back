@@ -48,15 +48,21 @@ class ReviewerRecognitionCertificateSerializer(serializers.ModelSerializer):
 
     def get_public_api_url(self, obj):
         request = self.context.get("request")
-        return build_absolute_url(request, build_certificate_public_api_path(obj.verification_code))
+        return build_absolute_url(
+            request, build_certificate_public_api_path(obj.verification_code, obj.submission.journal.slug)
+        )
 
     def get_pdf_url(self, obj):
         request = self.context.get("request")
-        return build_absolute_url(request, build_certificate_pdf_api_path(obj.verification_code))
+        return build_absolute_url(
+            request, build_certificate_pdf_api_path(obj.verification_code, obj.submission.journal.slug)
+        )
 
     def get_qr_svg_url(self, obj):
         request = self.context.get("request")
-        return build_absolute_url(request, build_certificate_qr_api_path(obj.verification_code))
+        return build_absolute_url(
+            request, build_certificate_qr_api_path(obj.verification_code, obj.submission.journal.slug)
+        )
 
 
 class JournalPublicationCertificateSerializer(serializers.ModelSerializer):
@@ -97,19 +103,19 @@ class JournalPublicationCertificateSerializer(serializers.ModelSerializer):
         request = self.context.get("request")
         return build_absolute_url(
             request,
-            build_journal_certificate_public_api_path(obj.verification_code),
+            build_journal_certificate_public_api_path(obj.verification_code, obj.submission.journal.slug),
         )
 
     def get_pdf_url(self, obj):
         request = self.context.get("request")
         return build_absolute_url(
             request,
-            build_journal_certificate_pdf_api_path(obj.verification_code),
+            build_journal_certificate_pdf_api_path(obj.verification_code, obj.submission.journal.slug),
         )
 
     def get_qr_svg_url(self, obj):
         request = self.context.get("request")
         return build_absolute_url(
             request,
-            build_journal_certificate_qr_api_path(obj.verification_code),
+            build_journal_certificate_qr_api_path(obj.verification_code, obj.submission.journal.slug),
         )

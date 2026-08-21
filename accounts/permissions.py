@@ -1,5 +1,7 @@
 from rest_framework import permissions
 
+from journals import services as journal_services
+
 
 def _get_request_user(request):
     """Safely return request user, or None when missing."""
@@ -20,7 +22,7 @@ class IsEmailVerified(permissions.BasePermission):
         user = _get_request_user(request)
         if not user or not user.is_authenticated:
             return False
-            
+
         return getattr(user, 'is_email_verified', False) is True
 
 class IsApprovedEditor(permissions.BasePermission):
@@ -32,15 +34,9 @@ class IsApprovedEditor(permissions.BasePermission):
             return False
         if not getattr(user, 'is_email_verified', False):
             return False
-            
-        roles = getattr(user, 'roles', []) or []
-        has_role = 'editor' in roles
-        is_approved = (
-            getattr(user, 'editor_status', None) == 'approved'
-            or bool(_call_or_value(getattr(user, 'is_approved_editor', False)))
-        )
-        
-        return bool(has_role and is_approved)
+
+        journal = getattr(request, 'journal', None)
+        return journal_services.is_approved_editor(user, journal)
 
 class IsApprovedReviewer(permissions.BasePermission):
     message = "Your Reviewer role has not been approved, or you don't have this role."
@@ -51,15 +47,9 @@ class IsApprovedReviewer(permissions.BasePermission):
             return False
         if not getattr(user, 'is_email_verified', False):
             return False
-            
-        roles = getattr(user, 'roles', []) or []
-        has_role = 'reviewer' in roles
-        is_approved = (
-            getattr(user, 'reviewer_status', None) == 'approved'
-            or bool(_call_or_value(getattr(user, 'is_approved_reviewer', False)))
-        )
-        
-        return bool(has_role and is_approved)
+
+        journal = getattr(request, 'journal', None)
+        return journal_services.is_approved_reviewer(user, journal)
 
 class IsAuthor(permissions.BasePermission):
     message = "You don't have the Author role."
@@ -70,8 +60,6 @@ class IsAuthor(permissions.BasePermission):
             return False
         if not getattr(user, 'is_email_verified', False):
             return False
-            
-        roles = getattr(user, 'roles', []) or []
-        has_role = 'author' in roles
-        
-        return bool(has_role)
+
+        journal = getattr(request, 'journal', None)
+        return journal_services.is_author(user, journal)

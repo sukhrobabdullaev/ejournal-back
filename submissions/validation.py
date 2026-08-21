@@ -4,6 +4,8 @@ from urllib.parse import urlparse
 
 from rest_framework import serializers
 
+from journals import services as journal_services
+
 from .models import STATUS_REVISION_REQUIRED, STATUS_SUBMITTED
 
 
@@ -25,7 +27,7 @@ def _is_valid_google_scholar_url(url: str) -> bool:
 
 def _validate_author_profile_requirements(submission):
     author = submission.author
-    if not author or not author.has_role("author"):
+    if not author or not journal_services.is_author(author, submission.journal):
         return
 
     orcid_id = (author.orcid_id or "").strip()
